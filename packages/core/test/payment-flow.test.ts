@@ -409,3 +409,85 @@ describe("helpers", () => {
 		expect(earlier).toMatch(/^ord_[0-9A-Z]{26}$/);
 	});
 });
+
+describe("dashboard data", () => {
+	async function paidOrder(
+		bot: { id: string; webhookSecret: string },
+		amount = 250,
+	) {
+		const order = await services.orders.create(
+			scope,
+			{ product: "nebula_skins", expires_in: 3600, delivery: "link" },
+			actor,
+		);
+		await send(
+			bot.id,
+			bot.webhookSecret,
+			successfulPayment(order.id, amount, chargeId("dash")),
+		);
+		return order;
+	}
+
+	it("reports net revenue, conversion and local-time buckets", async () => {
+		const bot = await connectBot();
+		const { order: unpaid } = await setupProductAndOrder();
+		await paidOrder(bot);
+		const refunded = await paidOrder(bot);
+		await services.payments.refund(scope, refunded.id, actor);
+
+		// 12:00 UTC is 17:30 in Kolkata: the 16:00–20:00 bucket.
+		const today = await services.analytics.overview(
+			scope,
+			"today",
+			"Asia/Kolkata",
+		);
+		expect(today.revenue).toEqual({ stars: 250, previous: 0 });
+		expect(today.payments).toEqual({ count: 1, average: 250 });
+		expect(today.conversion).toEqual({ created: 3, paid: 2 });
+		expect(today.series.map((bucket) => bucket.label)).toEqual([
+			"00",
+			"04",
+			"08",
+			"12",
+			"16",
+			"20",
+		]);
+		expect(today.series.find((bucket) => bucket.label === "16")?.stars).toBe(
+			250,
+		);
+		expect(today.recent.map((order) => order.id)).toContain(unpaid.id);
+
+		const week = await services.analytics.overview(scope, "7d", "UTC");
+		expect(week.series).toHaveLength(7);
+		expect(week.series.at(-1)).toEqual({ label: "2026-09-19", stars: 250 });
+
+		// Tomorrow, today's revenue becomes the previous period.
+		clock = new Date("2026-09-20T12:00:00Z");
+		const tomorrow = await services.analytics.overview(scope, "today", "UTC");
+		expect(tomorrow.revenue).toEqual({ stars: 0, previous: 250 });
+	});
+
+	it("lists customers by spend and summarises subscriptions", async () => {
+		const bot = await connectBot();
+		await setupProductAndOrder();
+		await paidOrder(bot);
+
+		const customers = await services.customers.list(scope, {
+			q: "@astro",
+			limit: 10,
+			offset: 0,
+		});
+		expect(customers.total).toBe(1);
+		expect(customers.data[0]).toMatchObject({
+			username: "astro_kid",
+			total_spent: 250,
+			order_count: 1,
+		});
+
+		expect(await services.subscriptions.stats(scope)).toEqual({
+			active: 0,
+			cancelled: 0,
+			monthly_stars: 0,
+		});
+	});
+});

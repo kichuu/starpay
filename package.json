@@ -17,6 +17,7 @@
     "db:studio": "turbo run db:studio -F @starpay/db --",
     "db:generate": "turbo run db:generate -F @starpay/db --",
     "db:migrate": "turbo run db:migrate -F @starpay/db --",
+    "db:seed": "pnpm -F server db:seed",
     "deploy": "turbo run deploy -F @starpay/infra --",
     "destroy": "turbo run destroy -F @starpay/infra --",
     "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/",

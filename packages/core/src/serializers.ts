@@ -7,6 +7,7 @@ import type {
 	OrderObject,
 	ProductObject,
 	SettingsView,
+	SubscriptionObject,
 } from "@starpay/contracts";
 import type {
 	ApiKey,
@@ -148,3 +149,33 @@ export function serializeSettings(settings: MerchantSettings): SettingsView {
 
 export const toJson = (value: unknown) =>
 	JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+
+export const subscriptionInclude = {
+	product: { select: { id: true, name: true, priceStars: true } },
+	customer: { select: { id: true, telegramUserId: true, username: true } },
+} satisfies Prisma.SubscriptionInclude;
+
+export type SubscriptionWithRelations = Prisma.SubscriptionGetPayload<{
+	include: typeof subscriptionInclude;
+}>;
+
+export function serializeSubscription(
+	subscription: SubscriptionWithRelations,
+): SubscriptionObject {
+	return {
+		id: subscription.id,
+		object: "subscription",
+		livemode: subscription.mode === "live",
+		status: subscription.status,
+		product: { id: subscription.product.id, name: subscription.product.name },
+		customer: {
+			id: subscription.customer.id,
+			telegram_user_id: Number(subscription.customer.telegramUserId),
+			username: subscription.customer.username,
+		},
+		price: subscription.product.priceStars,
+		current_period_end: iso(subscription.currentPeriodEnd),
+		cancelled_at: isoOrNull(subscription.cancelledAt),
+		created_at: iso(subscription.createdAt),
+	};
+}

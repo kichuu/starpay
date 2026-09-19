@@ -3,8 +3,23 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-import { ListInput, listOf, Mode, prefixedId, Timestamp } from "./common";
-import { OrderObject, OrderStatus, ProductObject } from "./objects";
+import {
+	ListInput,
+	listOf,
+	Mode,
+	prefixedId,
+	Stars,
+	Timestamp,
+} from "./common";
+import {
+	BalanceObject,
+	CustomerObject,
+	OrderObject,
+	OrderStatus,
+	ProductObject,
+	SubscriptionObject,
+	SubscriptionStatus,
+} from "./objects";
 import {
 	CreateProductInput,
 	ListProductsInput,
@@ -94,11 +109,103 @@ export const OnboardingStatus = z.object({
 	has_api_key: z.boolean(),
 });
 
+// ── Overview ──
+
+export const OverviewRange = z.enum(["today", "7d", "30d"]);
+export type OverviewRange = z.infer<typeof OverviewRange>;
+
+/** IANA time zone of the viewer, so "today" and chart buckets match their clock. */
+const TimeZone = z
+	.string()
+	.max(64)
+	.refine((tz) => {
+		try {
+			new Intl.DateTimeFormat("en", { timeZone: tz });
+			return true;
+		} catch {
+			return false;
+		}
+	}, "Unknown time zone");
+
+export const OverviewInput = z.object({
+	range: OverviewRange,
+	tz: TimeZone.default("UTC"),
+});
+
+export const OverviewResult = z.object({
+	range: OverviewRange,
+	/** Net of refunds. */
+	revenue: z.object({ stars: Stars, previous: Stars }),
+	payments: z.object({ count: z.int(), average: Stars }),
+	/** Orders created in the range, and how many of them were paid. */
+	conversion: z.object({ created: z.int(), paid: z.int() }),
+	deliveries: z.object({ failed: z.int(), pending: z.int() }),
+	/** Oldest first. `label` is an ISO date (7d/30d) or a start hour "00"–"20" (today). */
+	series: z.array(z.object({ label: z.string(), stars: Stars })),
+	recent: z.array(OrderObject),
+});
+export type OverviewResult = z.infer<typeof OverviewResult>;
+
+// ── Customers, subscriptions, balance ──
+
+export const ListCustomersInput = z.object({
+	/** @username or Telegram user ID. */
+	q: z.string().max(64).optional(),
+	limit: z.int().min(1).max(100).default(25),
+	offset: z.int().min(0).default(0),
+});
+
+export const SubscriptionStats = z.object({
+	active: z.int(),
+	/** Cancelled but still inside the paid period. */
+	cancelled: z.int(),
+	/** Stars per 30 days if every active subscription renews. */
+	monthly_stars: Stars,
+});
+
+export const StarTransactionView = z.object({
+	id: z.string(),
+	date: Timestamp,
+	/** Signed: positive = received. */
+	amount: z.int(),
+	kind: z.enum(["payment", "refund", "withdrawal", "other"]),
+	label: z.string(),
+	order_id: z.string().nullable(),
+});
+export type StarTransactionView = z.infer<typeof StarTransactionView>;
+
 const Ok = z.object({ ok: z.literal(true) });
 
 export const dashboardContract = {
 	onboarding: {
 		status: oc.output(OnboardingStatus),
+	},
+	overview: {
+		get: oc.input(OverviewInput).output(OverviewResult),
+	},
+	customers: {
+		list: oc
+			.input(ListCustomersInput)
+			.output(z.object({ data: z.array(CustomerObject), total: z.int() })),
+	},
+	subscriptions: {
+		stats: oc.output(SubscriptionStats),
+		list: oc
+			.input(ListInput.extend({ status: SubscriptionStatus.optional() }))
+			.output(listOf(SubscriptionObject)),
+	},
+	balance: {
+		/** Cached balance, refreshed from Telegram when older than a minute. */
+		get: oc.output(BalanceObject),
+		/** Live from Telegram's getStarTransactions, newest first. */
+		transactions: oc
+			.input(z.object({ offset: z.int().min(0).default(0) }))
+			.output(
+				z.object({
+					data: z.array(StarTransactionView),
+					next_offset: z.int().nullable(),
+				}),
+			),
 	},
 	bot: {
 		get: oc.output(BotView.nullable()),

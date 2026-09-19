@@ -90,7 +90,7 @@ export const publicRouter = authed.router({
 	},
 	balance: {
 		retrieve: authed.balance.retrieve.handler(({ context }) =>
-			context.services.overview.balance(context.scope),
+			context.services.balance.get(context.scope),
 		),
 	},
 });

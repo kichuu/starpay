@@ -1,36 +1,33 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import type { ContractRouterClient } from "@orpc/contract";
+import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { type DashboardContract, MODE_HEADER, type Mode } from "@starpay/contracts";
-import { QueryCache, QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryClient } from "@tanstack/react-query";
+import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { ENV } from "../env";
 
-export function createQueryClient() {
-  return new QueryClient({
-    queryCache: new QueryCache({
-      onError: (error, query) => {
-        toast.error(`Error: ${error.message}`, {
-          action: {
-            label: "retry",
-            onClick: () => {
-              query.invalidate();
-            },
-          },
-        });
-      },
-    }),
-  });
-}
+// Queries render their own error states; failed mutations get a toast.
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: 1, refetchOnWindowFocus: false },
+  },
+  mutationCache: new MutationCache({
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  }),
+});
 
-export const queryClient = createQueryClient();
+// ── Live / Test mode ──
+// Stored per browser and sent with every RPC call as a header.
 
 const MODE_STORAGE_KEY = "starpay-mode";
+const modeListeners = new Set<() => void>();
 
-/** Live/Test toggle. Stored per browser; every RPC call sends it as a header. */
-export function getMode(): Mode {
+function readMode(): Mode {
   try {
     return localStorage.getItem(MODE_STORAGE_KEY) === "test" ? "test" : "live";
   } catch {
@@ -38,13 +35,33 @@ export function getMode(): Mode {
   }
 }
 
+let currentMode: Mode = readMode();
+
+export function getMode(): Mode {
+  return currentMode;
+}
+
 export function setMode(mode: Mode) {
+  if (mode === currentMode) return;
+  currentMode = mode;
   try {
     localStorage.setItem(MODE_STORAGE_KEY, mode);
   } catch {
-    // Storage unavailable (private mode); the toggle resets on reload.
+    // Storage unavailable (private window): the choice lasts until reload.
   }
-  queryClient.invalidateQueries();
+  for (const listener of modeListeners) listener();
+  // Every query is mode-scoped; drop cached data from the other mode.
+  queryClient.resetQueries();
+}
+
+export function useMode(): Mode {
+  return useSyncExternalStore(
+    (listener) => {
+      modeListeners.add(listener);
+      return () => modeListeners.delete(listener);
+    },
+    getMode,
+  );
 }
 
 export const link = new RPCLink({

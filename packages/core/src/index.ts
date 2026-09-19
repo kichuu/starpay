@@ -1,6 +1,12 @@
 import type { Deps } from "./deps";
+import { createAnalyticsService } from "./services/analytics";
 import { createApiKeyService } from "./services/api-keys";
+import { createBalanceService } from "./services/balance";
 import { createBotService } from "./services/bots";
+import {
+	createCustomerService,
+	createSubscriptionService,
+} from "./services/customers";
 import { createIdempotencyService } from "./services/idempotency";
 import { createOrderService } from "./services/orders";
 import { createOverviewService } from "./services/overview";
@@ -24,6 +30,10 @@ export function createServices(deps: Deps) {
 		settings: createSettingsService(deps),
 		overview: createOverviewService(deps),
 		idempotency: createIdempotencyService(deps),
+		analytics: createAnalyticsService(deps),
+		customers: createCustomerService(deps),
+		subscriptions: createSubscriptionService(deps),
+		balance: createBalanceService(deps, bots),
 	};
 }
 

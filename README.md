@@ -47,6 +47,14 @@ pnpm run dev            # or: pnpm dev:web / pnpm dev:server
 
 `pnpm dev:alchemy` runs the Alchemy dev stack instead, which provisions a cloud Prisma Postgres.
 
+### Demo data
+
+```bash
+pnpm db:seed
+```
+
+Creates `demo@starpay.dev` / `starpay-demo` with a "Pixel Forge" merchant in **Test mode** (switch the sidebar toggle to Test): products, customers and about 30 days of orders, payments and refunds. Its bot is a stub, so anything that calls Telegram live (refunds, balance, transactions) returns a Telegram error for this merchant.
+
 - Dashboard: http://localhost:3001
 - API: http://localhost:3000 (dashboard RPC at `/rpc`, public API at `/v1`, docs at `/v1/docs`)
 

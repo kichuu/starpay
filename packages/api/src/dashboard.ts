@@ -57,6 +57,32 @@ export const dashboardRouter = merchant.router({
 			context.services.overview.onboarding(context.scope),
 		),
 	},
+	overview: {
+		get: merchant.overview.get.handler(({ context, input }) =>
+			context.services.analytics.overview(context.scope, input.range, input.tz),
+		),
+	},
+	customers: {
+		list: merchant.customers.list.handler(({ context, input }) =>
+			context.services.customers.list(context.scope, input),
+		),
+	},
+	subscriptions: {
+		stats: merchant.subscriptions.stats.handler(({ context }) =>
+			context.services.subscriptions.stats(context.scope),
+		),
+		list: merchant.subscriptions.list.handler(({ context, input }) =>
+			context.services.subscriptions.list(context.scope, input),
+		),
+	},
+	balance: {
+		get: merchant.balance.get.handler(({ context }) =>
+			context.services.balance.get(context.scope),
+		),
+		transactions: merchant.balance.transactions.handler(({ context, input }) =>
+			context.services.balance.transactions(context.scope, input.offset),
+		),
+	},
 	bot: {
 		get: merchant.bot.get.handler(({ context }) =>
 			context.services.bots.get(context.scope),
