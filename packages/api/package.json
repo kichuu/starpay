@@ -1,0 +1,25 @@
+{
+  "name": "@starpay/api",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "check-types": "tsc -b"
+  },
+  "dependencies": {
+    "@orpc/client": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
+    "@orpc/zod": "catalog:",
+    "@starpay/auth": "workspace:*",
+    "@starpay/db": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@starpay/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

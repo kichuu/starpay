@@ -1,0 +1,31 @@
+// Better-T-Stack project metadata
+//
+// Keep this file to use the `add` command.
+// Add addons: pnpm dlx create-better-t-stack@latest add
+//
+// Docs: https://better-t-stack.dev/docs
+// Stack Builder: https://better-t-stack.dev/new
+
+{
+  "$schema": "https://r2.better-t-stack.dev/schema.json",
+  "version": "3.44.0",
+  "createdAt": "2026-09-19T18:00:01.776Z",
+  "reproducibleCommand": "pnpm create better-t-stack@latest starpay --frontend tanstack-router --backend hono --runtime node --database postgres --orm prisma --api orpc --auth better-auth --payments none --addons biome turborepo --examples none --db-setup prisma-postgres --web-deploy prisma --server-deploy prisma --git --package-manager pnpm --install",
+  "dbSetupOptions": {
+    "mode": "alchemy",
+  },
+  "database": "postgres",
+  "orm": "prisma",
+  "backend": "hono",
+  "runtime": "node",
+  "frontend": ["tanstack-router"],
+  "addons": ["biome", "turborepo"],
+  "examples": [],
+  "auth": "better-auth",
+  "payments": "none",
+  "packageManager": "pnpm",
+  "dbSetup": "prisma-postgres",
+  "api": "orpc",
+  "webDeploy": "prisma",
+  "serverDeploy": "prisma",
+}

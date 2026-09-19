@@ -1,0 +1,3 @@
+{
+  "extends": "@starpay/config/tsconfig.base.json"
+}
