@@ -119,26 +119,25 @@ Run standalone Node/Bun tools that use Varlock from the owning app directory so 
 
 ## Deployment
 
-### Alchemy
+Alchemy deploys the API and the dashboard to Prisma Compute and the database to Prisma Postgres (`packages/infra/alchemy.run.ts`). The live stage is `prod`.
 
-- Target: web on Prisma + server on Prisma
-- Configure provider accounts: `cd packages/infra && pnpm exec alchemy profile edit`
-- Dev: pnpm run dev
-- Deploy: pnpm run deploy
-- Destroy: pnpm run destroy
+**Once per machine**
 
-`alchemy profile edit` stores the selected Axiom, Cloudflare, Neon, PlanetScale, and/or Prisma provider profiles under `~/.alchemy`; no provider-specific setup command is required by this scaffold.
+1. Create a service token in the Prisma Console (workspace → Settings → Service tokens) and put it in `packages/infra/.env` as `PRISMA_SERVICE_TOKEN=…`, together with an `ALCHEMY_PASSWORD` (any long random string; it encrypts secrets in the local Alchemy state).
+2. Production settings live in two gitignored files, loaded because deploys run with `NODE_ENV=production`:
+   - `apps/server/.env.production`: `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY` (never reuse the local ones), `BETTER_AUTH_URL` and `PUBLIC_API_URL` (the server URL), `CORS_ORIGIN` (the web URL)
+   - `apps/web/.env.production`: `VITE_SERVER_URL` (the server URL)
+3. Bun must be on your PATH: Alchemy bundles the server with `bun build`.
 
-Deploys are staged and default to a personal `dev_<username>` stage. For production, run the deploy with an explicit stage from `packages/infra`:
+**Deploy**
 
 ```bash
-cd packages/infra && pnpm exec alchemy deploy --stage production
+pnpm run deploy        # plan: pnpm -F @starpay/infra plan
 ```
 
-### Production origins
+Migrations in `packages/db/prisma/migrations` are applied to Prisma Postgres during the deploy. On a brand-new stack, deploy once to get the server and web URLs, fill them into the two `.env.production` files, and deploy again.
 
-- Required after the first deploy: set `CORS_ORIGIN` in `apps/server/.env` to the exact deployed web origin, such as `https://app.example.com`, then deploy the server again.
-- Prisma + Better Auth: after the first deploy, set `BETTER_AUTH_URL` in `apps/server/.env` to the returned server URL, then deploy again.
+Keep `ENCRYPTION_KEY` safe: it decrypts every stored bot token and webhook secret, so losing or changing it means reconnecting every bot.
 
 ## Git Hooks and Formatting
 

@@ -9,6 +9,9 @@ export default defineConfig({
     path: path.join("prisma", "migrations"),
   },
   datasource: {
-    url: process.env.DATABASE_URL!,
+    // Deploys pass MIGRATE_DATABASE_URL: varlock re-resolves DATABASE_URL from
+    // local .env files when the parent process ran under varlock (as Alchemy does),
+    // which would point migrations at the local database.
+    url: process.env.MIGRATE_DATABASE_URL ?? process.env.DATABASE_URL!,
   },
 });

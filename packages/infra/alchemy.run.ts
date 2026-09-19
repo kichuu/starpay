@@ -31,7 +31,7 @@ const managedDatabase = Effect.gen(function* () {
   yield* Command.Exec("database-migrations", {
     command: "pnpm run db:migrate:deploy",
     cwd: "../../packages/db",
-    env: { DATABASE_URL: migrationUrl },
+    env: { MIGRATE_DATABASE_URL: migrationUrl },
     memo: {
       include: ["prisma/migrations/**", "prisma/schema/**"],
     },
