@@ -7,10 +7,10 @@
     "check-types": "tsc -b ../../packages/api && tsc --noEmit",
     "compile": "bun build --compile --no-compile-autoload-dotenv --minify --sourcemap --bytecode ./src/index.ts --outfile server",
     "start": "node dist/index.mjs",
-    "dev:bare": "tsx watch src/index.ts",
+    "dev:bare": "varlock run -- tsx watch src/index.ts",
     "env:generate": "varlock codegen",
     "auth:generate": "varlock run -- pnpm dlx auth@latest generate --config src/services.ts --output ../../packages/db/prisma/schema/auth.prisma --yes",
-    "db:seed": "tsx src/scripts/seed.ts"
+    "db:seed": "varlock run -- tsx src/scripts/seed.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
