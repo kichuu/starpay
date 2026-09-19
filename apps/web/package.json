@@ -4,18 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b ../../packages/api && vite build",
+    "build": "tsc -b ../../packages/contracts && vite build",
     "serve": "vite preview",
     "start": "vite",
-    "check-types": "tsc -b ../../packages/api && vite build && tsc --noEmit",
+    "check-types": "tsc -b ../../packages/contracts && vite build && tsc --noEmit",
     "dev:bare": "vite dev",
     "env:generate": "varlock codegen"
   },
   "dependencies": {
     "@orpc/client": "catalog:",
-    "@orpc/server": "catalog:",
+    "@orpc/contract": "catalog:",
     "@orpc/tanstack-query": "^1.15.0",
-    "@starpay/api": "workspace:*",
+    "@starpay/contracts": "workspace:*",
     "@starpay/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-form": "^1.33.5",

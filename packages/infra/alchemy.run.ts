@@ -70,6 +70,10 @@ export const server = Prisma.Compute(
         CORS_ORIGIN: Config.String("CORS_ORIGIN"),
         BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
         BETTER_AUTH_URL: Config.String("BETTER_AUTH_URL"),
+        ENCRYPTION_KEY: Config.Redacted("ENCRYPTION_KEY"),
+        // The server's public HTTPS URL (your api.* domain); Telegram posts bot updates here.
+        PUBLIC_API_URL: Config.String("PUBLIC_API_URL"),
+        WORKER_ENABLED: Config.String("WORKER_ENABLED").pipe(Config.withDefault("true")),
       },
       healthCheck: { path: "/" },
       destroyOldDeployment: true,

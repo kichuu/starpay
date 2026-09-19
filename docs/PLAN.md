@@ -436,7 +436,7 @@ Use Prisma directly in services for simple CRUD. Add repositories only where the
 - **Auth:** `Authorization: Bearer live_sk_…` or `test_sk_…`. The mode comes from the key itself. Keys are 32 random bytes in base58, and only the sha256 hash is stored.
 - **Transport:** oRPC `OpenAPIHandler`, contract-first, which also generates `/v1/openapi.json` and the reference docs.
 - **Pagination:** cursors, `?limit=20&starting_after=ord_…`, returning `{ data, has_more }`.
-- **Errors:** `{ "error": { "type": "invalid_request" | "authentication" | "not_found" | "conflict" | "telegram_error" | "rate_limited" | "internal", "code": "order_not_refundable", "message": "…", "param": "product_id" } }`
+- **Errors:** oRPC's error body, `{ "code": "ORDER_NOT_REFUNDABLE", "status": 409, "message": "…", "data": { "param": "product" } }`, with the HTTP status matching `status`. Codes are listed in `ErrorCode` (`packages/contracts/src/common.ts`); validation failures are `BAD_REQUEST` with `data.issues`. *(Decided during M0/M1 instead of a Stripe-style envelope: one error shape across `/rpc` and `/v1`, no custom encoder.)*
 - **Idempotency:** every POST accepts `Idempotency-Key`. The same key with the same body replays the stored response. The same key with a different body returns `409`.
 - **Rate limit:** 100 requests/second per key using an in-memory token bucket to start.
 
@@ -627,7 +627,7 @@ Periodic jobs are wrapped in `jobLock.tryRun`, which uses an advisory lock. On s
 
 ## 9. Changes to the scaffold
 
-1. **DB adapter.** `@prisma/adapter-ppg` is Prisma Postgres's serverless driver. The first spike should confirm that interactive `$transaction` calls and raw `FOR UPDATE SKIP LOCKED` work with it. If they don't, switch to `@prisma/adapter-pg` with the direct connection string, which Alchemy already exposes (`directConnectionString`). That fits a long-running server better anyway.
+1. **DB adapter.** ✅ Switched to `@prisma/adapter-pg`. It works with local Postgres (docker-compose, port 5433) and with the direct connection string Alchemy passes in production, and interactive transactions are covered by the tests.
 2. **Server entry.** Split `index.ts` so `/rpc` → dashboard router, `/v1` → public OpenAPI router, `/telegram/*` → Hono route. Remove the demo `privateData` procedure. Move `/api-reference` to `/v1/docs`.
 3. **Alchemy.** `server` has `framework: "bun"` but `runtime: node` and `tsx`. Make them match (set it to node). Add the new env vars.
 4. **CORS.** `allowMethods` needs `PATCH`/`DELETE`. `allowHeaders` needs `x-starpay-mode` and `Idempotency-Key`. The public `/v1` doesn't need CORS at all, since it's called server-to-server.
@@ -664,8 +664,8 @@ Periodic jobs are wrapped in `jobLock.tryRun`, which uses an advisory lock. On s
 
 | # | Deliverable | Done when |
 |---|---|---|
-| **M0 Foundations** | New packages, env vars, schema and migration, crypto/ids, telegram client (test env), org plugin, mode middleware, adapter spike | `pnpm check-types` passes; a migration applies to the dev DB |
-| **M1 First payment** | Bot connect, products, `POST /v1/orders`, Telegram webhook, pre-checkout, successful payment | A real test-environment bot sells an item end to end and the order shows `paid` |
+| **M0 Foundations** ✅ | New packages, env vars, schema and migration, crypto/ids, telegram client (test env), org plugin, mode middleware, adapter spike | `pnpm check-types` passes; a migration applies to the dev DB |
+| **M1 First payment** ✅ code + tests; needs a real test-server bot run | Bot connect, products, `POST /v1/orders`, Telegram webhook, pre-checkout, successful payment | A real test-environment bot sells an item end to end and the order shows `paid` |
 | **M2 Webhooks** | Endpoints, outbox, dispatcher, signing, retries, resend, test event | The merchant receives a signed `payment.succeeded`; killing the endpoint produces retries |
 | **M3 Dashboard core** | Overview, Payments and drawer, refunds, Customers, Bot & API, API keys | The design screens render real data |
 | **M4 Money details** | Subscriptions (create, renew, cancel, expire), balance sync, `/paysupport`, settings, audit log | A subscription renews on the test server; the balance matches Telegram |

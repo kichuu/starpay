@@ -7,6 +7,21 @@
     "emitDeclarationOnly": true,
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"],
-  "references": [{ "path": "../db" }, { "path": "../auth" }]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../auth"
+    },
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": "../core"
+    }
+  ]
 }

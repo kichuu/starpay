@@ -1,21 +1,15 @@
-import type { Context as ApiContext } from "@starpay/api/context";
+import type { DashboardContext, PublicContext } from "@starpay/api";
 import type { Context as HonoContext } from "hono";
 
-import { db } from "./services";
-import { auth } from "./services";
+import { auth, db, services } from "./services";
 
-export type CreateContextOptions = {
-  context: HonoContext;
-};
-
-export async function createContext({ context }: CreateContextOptions): Promise<ApiContext> {
-  const session = await auth.api.getSession({
-    headers: context.req.raw.headers,
-  });
-  return {
-    db,
-    session,
-  };
+export async function createDashboardContext(
+	c: HonoContext,
+): Promise<DashboardContext> {
+	const session = await auth.api.getSession({ headers: c.req.raw.headers });
+	return { db, services, session, headers: c.req.raw.headers };
 }
 
-export type Context = Awaited<ReturnType<typeof createContext>>;
+export function createPublicContext(c: HonoContext): PublicContext {
+	return { services, headers: c.req.raw.headers };
+}

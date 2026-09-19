@@ -1,10 +1,25 @@
 {
   "extends": "@starpay/config/tsconfig.base.json",
-  "references": [{ "path": "../../packages/api" }],
+  "references": [
+    {
+      "path": "../../packages/api"
+    },
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/telegram"
+    },
+    {
+      "path": "../../packages/contracts"
+    }
+  ],
   "compilerOptions": {
     "noEmit": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     },
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"

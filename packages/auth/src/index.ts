@@ -43,4 +43,4 @@ export function createAuth(
 export type Auth = ReturnType<typeof createAuth>;
 export type Session = Auth["$Infer"]["Session"];
 
-export { ROLE_RANK, type MemberRole } from "./roles";
+export { type MemberRole, ROLE_RANK } from "./roles";

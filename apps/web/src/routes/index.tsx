@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { orpc } from "@/utils/orpc";
+import { ENV } from "@/env";
 
 export const Route = createFileRoute("/")({
   component: HomeComponent,
@@ -24,7 +24,10 @@ const TITLE_TEXT = `
  `;
 
 function HomeComponent() {
-  const healthCheck = useQuery(orpc.healthCheck.queryOptions());
+  const healthCheck = useQuery({
+    queryKey: ["health"],
+    queryFn: () => fetch(ENV.VITE_SERVER_URL).then((response) => response.ok),
+  });
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-2">

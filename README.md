@@ -1,6 +1,8 @@
 # starpay
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Hono, ORPC, and more.
+StarPay is a payment backend for selling digital goods for Telegram Stars. A merchant connects their own bot; StarPay creates invoices, handles Telegram's payment updates and sends signed webhooks to the merchant's server. It never holds funds. See [docs/PLAN.md](docs/PLAN.md) for the architecture.
+
+Built on [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack): React, TanStack Router, Hono, oRPC, Prisma and Better-Auth.
 
 ## Features
 
@@ -19,11 +21,43 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 
 ## Getting Started
 
-First, install the dependencies:
+Requirements: Node.js 24 (`nvm use` reads `.nvmrc`), pnpm and Docker.
 
 ```bash
 pnpm install
+docker compose up -d          # Postgres 17 on localhost:5433
 ```
+
+Add these to `apps/server/.env` (next to the Better-Auth values). Generate `ENCRYPTION_KEY` with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` and paste the output:
+
+```bash
+DATABASE_URL=postgresql://starpay:starpay@localhost:5433/starpay
+ENCRYPTION_KEY=<32 random bytes, base64>
+PUBLIC_API_URL=http://localhost:3000
+```
+
+`PUBLIC_API_URL` must be a public HTTPS URL before Telegram can deliver bot updates (see below).
+
+Apply migrations and start everything:
+
+```bash
+pnpm run db:migrate
+pnpm run dev
+```
+
+- Dashboard: http://localhost:3001
+- API: http://localhost:3000 (dashboard RPC at `/rpc`, public API at `/v1`, docs at `/v1/docs`)
+
+Telegram only delivers bot updates over HTTPS. To test real payments locally, expose port 3000 through a tunnel (cloudflared, ngrok), set `PUBLIC_API_URL` to the tunnel URL, and connect a bot from Telegram's test environment.
+
+### Tests
+
+```bash
+docker exec starpay-postgres psql -U starpay -c "CREATE DATABASE starpay_test"   # once
+pnpm -F @starpay/core test
+```
+
+The tests run the payment flow against the `starpay_test` database with a fake Telegram client.
 
 ## Database Setup
 
@@ -35,16 +69,7 @@ pnpm run db:generate
 
 Alchemy provisions Prisma Postgres, passes its connection credentials directly to the deployed application, and manages database deployment in the same stack as the consuming app. You do not need to copy a hosted `DATABASE_URL` into the app environment.
 
-The scaffold includes an initial Prisma migration when generated models need one. Create and commit later migrations with `pnpm run db:migrate`; deployment applies checked-in migrations with `prisma migrate deploy`.
-
-Then, run the development server:
-
-```bash
-pnpm run dev
-```
-
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
+Create and commit migrations with `pnpm run db:migrate`; deployment applies checked-in migrations with `prisma migrate deploy`.
 
 ## UI Customization
 
@@ -118,9 +143,12 @@ starpay/
 │   └── server/      # Backend API (Hono, ORPC)
 ├── packages/
 │   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── api/         # API layer / business logic
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
+│   ├── contracts/   # Zod schemas + oRPC contracts (public API, dashboard, webhooks)
+│   ├── api/         # Controllers: auth/role/mode middleware → core services
+│   ├── core/        # Business logic (orders, payments, bots, API keys, …)
+│   ├── telegram/    # Typed Telegram Bot API client
+│   ├── auth/        # Better-Auth config (organizations = merchants)
+│   └── db/          # Prisma schema, migrations & client
 ```
 
 ## Available Scripts

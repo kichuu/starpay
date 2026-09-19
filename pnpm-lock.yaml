@@ -111,9 +111,18 @@ importers:
       '@starpay/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@starpay/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@starpay/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@starpay/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@starpay/telegram':
+        specifier: workspace:*
+        version: link:../../packages/telegram
       better-auth:
         specifier: 'catalog:'
         version: 1.7.5(@prisma/client@7.10.0(prisma@7.10.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3))(typescript@6.0.3))(mysql2@3.15.3)(pg@8.23.0)(prisma@7.10.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.15)(vitest@5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1)))
@@ -148,15 +157,15 @@ importers:
       '@orpc/client':
         specifier: 'catalog:'
         version: 1.15.1
-      '@orpc/server':
+      '@orpc/contract':
         specifier: 'catalog:'
-        version: 1.15.1(ws@8.21.3)
+        version: 1.15.1
       '@orpc/tanstack-query':
         specifier: ^1.15.0
         version: 1.15.1(@orpc/client@1.15.1)(@tanstack/query-core@5.103.1)
-      '@starpay/api':
+      '@starpay/contracts':
         specifier: workspace:*
-        version: link:../../packages/api
+        version: link:../../packages/contracts
       '@starpay/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -239,9 +248,6 @@ importers:
 
   packages/api:
     dependencies:
-      '@orpc/client':
-        specifier: 'catalog:'
-        version: 1.15.1
       '@orpc/openapi':
         specifier: 'catalog:'
         version: 1.15.1(ws@8.21.3)
@@ -254,6 +260,12 @@ importers:
       '@starpay/auth':
         specifier: workspace:*
         version: link:../auth
+      '@starpay/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@starpay/core':
+        specifier: workspace:*
+        version: link:../core
       '@starpay/db':
         specifier: workspace:*
         version: link:../db

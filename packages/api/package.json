@@ -10,11 +10,12 @@
     "check-types": "tsc -b"
   },
   "dependencies": {
-    "@orpc/client": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/zod": "catalog:",
     "@starpay/auth": "workspace:*",
+    "@starpay/contracts": "workspace:*",
+    "@starpay/core": "workspace:*",
     "@starpay/db": "workspace:*",
     "zod": "catalog:"
   },
