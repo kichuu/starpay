@@ -38,12 +38,14 @@ PUBLIC_API_URL=http://localhost:3000
 
 `PUBLIC_API_URL` must be a public HTTPS URL before Telegram can deliver bot updates (see below).
 
-Apply migrations and start everything:
+Apply migrations and start the web app and API against the local database:
 
 ```bash
 pnpm run db:migrate
-pnpm run dev
+pnpm run dev            # or: pnpm dev:web / pnpm dev:server
 ```
+
+`pnpm dev:alchemy` runs the Alchemy dev stack instead, which provisions a cloud Prisma Postgres.
 
 - Dashboard: http://localhost:3001
 - API: http://localhost:3000 (dashboard RPC at `/rpc`, public API at `/v1`, docs at `/v1/docs`)
