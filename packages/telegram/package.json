@@ -1,0 +1,16 @@
+{
+	"name": "@starpay/telegram",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./*": "./src/*.ts"
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"check-types": "tsc -b"
+	},
+	"devDependencies": {
+		"@starpay/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

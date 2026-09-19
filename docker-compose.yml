@@ -1,0 +1,21 @@
+# Local development database. Production uses Prisma Postgres (see packages/infra).
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: starpay-postgres
+    environment:
+      POSTGRES_USER: starpay
+      POSTGRES_PASSWORD: starpay
+      POSTGRES_DB: starpay
+    ports:
+      - "5433:5432"
+    volumes:
+      - starpay_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U starpay"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  starpay_pg:

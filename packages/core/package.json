@@ -1,0 +1,24 @@
+{
+	"name": "@starpay/core",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./*": "./src/*.ts"
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"check-types": "tsc -b",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@starpay/contracts": "workspace:*",
+		"@starpay/db": "workspace:*",
+		"@starpay/telegram": "workspace:*",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@starpay/config": "workspace:*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}
