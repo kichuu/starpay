@@ -712,9 +712,9 @@ Movements:
 payment          platform_telegram +gross | merchant_pending −net | platform_fees −fee
 release          merchant_pending  +net   | merchant_available −net        (after hold_days)
 refund           platform_telegram −gross | platform_fees +fee | pending/available +net
-payout_request   merchant_available +(amount+fee) | merchant_payouts −amount | platform_fees −fee
-payout_paid      merchant_payouts  +amount | platform_treasury −amount
-payout_reversed  merchant_payouts  +amount | platform_fees +fee | merchant_available −(amount+fee)
+payout_request   merchant_available +amount | merchant_payouts −net | platform_fees −fee
+payout_paid      merchant_payouts  +net    | platform_treasury −net        (net = amount − fee)
+payout_reversed  merchant_payouts  +net | platform_fees +fee | merchant_available −amount
 fragment_withdrawal  platform_treasury +stars | platform_telegram −stars
 ```
 
@@ -722,11 +722,13 @@ A refund reverses the fee too, so the books mirror the original sale. A refund o
 
 ### Fees
 
-`fee_plan` holds the commercial terms: `percentBps` + `fixedStars` per payment, `payoutFeeStars`, `minPayoutStars`, `holdDays`, and a rolling reserve (`reserveBps` over `reserveDays`). One plan is the default; a merchant can be assigned another. The fee is computed at payment time (percentage rounded half up, never more than the payment) and **stored on the payment**, so later plan changes never rewrite past sales. Defaults: 5%, 21-day hold, 10% reserve over 30 days, 1,000-Star minimum payout.
+`fee_plan` holds the commercial terms: `percentBps` + `fixedStars` per payment; for payouts `payoutFeeBps` + `payoutFeeStars` + `payoutGasNano` (network gas, in nano-TON); plus `minPayoutStars`, `holdDays`, and a rolling reserve (`reserveBps` over `reserveDays`). One plan is the default; a merchant can be assigned another. The fee is computed at payment time (percentage rounded half up, never more than the payment) and **stored on the payment**, so later plan changes never rewrite past sales. Defaults: 5%, 21-day hold, 10% reserve over 30 days, 1,000-Star minimum payout.
 
 The reserve is measured from `availableAt` (when money became available), not from when the release job happened to run, so a late job can't extend it.
 
 ### Payouts
+
+**Payout fees come out of the amount.** Cashing out 100 Stars sends 100 − gas − commission, so the merchant's balance drops by exactly what they asked for. Gas is configured in TON (default 0.01) and priced in Stars at the live TON rate when the payout is requested, so it tracks the real cost instead of drifting; each part rounds up so StarPay never under-collects. The breakdown is stored on the payout, and `payouts.quote` prices an amount before the merchant confirms.
 
 A payout moves Stars out of `merchant_available` and sends TON to the merchant's wallet. Safeguards:
 - **No double spend:** the request locks the merchant's `merchant_available` account row (`FOR UPDATE`) and rechecks the balance inside the same transaction.

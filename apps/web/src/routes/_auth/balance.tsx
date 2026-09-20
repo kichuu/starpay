@@ -124,21 +124,14 @@ function HostedBalance({ balance }: { balance: MerchantBalance }) {
 					</div>
 					<Button
 						className="mt-2 self-start bg-white text-brand hover:bg-[#E8F0FF] dark:hover:bg-[#E8F0FF]"
-						disabled={
-							balance.withdrawable <
-							balance.plan.min_payout_stars + balance.plan.payout_fee_stars
-						}
+						disabled={balance.withdrawable < balance.plan.min_payout_stars}
 						onClick={() => setRequesting(true)}
 					>
 						Request payout
 					</Button>
-					{balance.withdrawable <
-						balance.plan.min_payout_stars + balance.plan.payout_fee_stars && (
+					{balance.withdrawable < balance.plan.min_payout_stars && (
 						<div className="text-[#CFE0FF] text-[12px]">
-							Minimum payout is ★ {formatStars(balance.plan.min_payout_stars)}
-							{balance.plan.payout_fee_stars > 0 &&
-								` plus a ★ ${balance.plan.payout_fee_stars} fee`}
-							.
+							Minimum payout is ★ {formatStars(balance.plan.min_payout_stars)}.
 						</div>
 					)}
 				</div>
@@ -192,7 +185,7 @@ function HostedBalance({ balance }: { balance: MerchantBalance }) {
 				<div>
 					<span className="text-muted-foreground">Payout fee </span>
 					<span className="font-semibold">
-						★ {balance.plan.payout_fee_stars}
+						{payoutFeeSummary(balance.plan)}
 					</span>
 				</div>
 				<div className="min-w-0">
@@ -224,6 +217,15 @@ function HostedBalance({ balance }: { balance: MerchantBalance }) {
 	);
 }
 
+/** "1% + ★2 + 0.01 TON gas", all taken out of each payout. */
+function payoutFeeSummary(plan: MerchantBalance["plan"]) {
+	const parts: string[] = [];
+	if (plan.payout_fee_bps > 0) parts.push(percent(plan.payout_fee_bps));
+	if (plan.payout_fee_stars > 0) parts.push(`★ ${plan.payout_fee_stars}`);
+	parts.push(`${plan.payout_gas_ton} TON gas`);
+	return parts.join(" + ");
+}
+
 function shortAddress(address: string) {
 	return address.length > 16
 		? `${address.slice(0, 6)}…${address.slice(-6)}`
@@ -240,7 +242,6 @@ function RequestPayoutDialog({
 	onOpenChange: (open: boolean) => void;
 }) {
 	const queryClient = useQueryClient();
-	const max = Math.max(0, balance.withdrawable - balance.plan.payout_fee_stars);
 	const [amount, setAmount] = useState("");
 	const request = useMutation(
 		orpc.payouts.request.mutationOptions({
@@ -252,11 +253,20 @@ function RequestPayoutDialog({
 			},
 		}),
 	);
+
 	const value = Number(amount);
 	const valid =
 		Number.isInteger(value) &&
 		value >= balance.plan.min_payout_stars &&
-		value <= max;
+		value <= balance.withdrawable;
+	// Fees depend on the live TON price, so the server prices each amount.
+	const quote = useQuery({
+		...orpc.payouts.quote.queryOptions({
+			input: { amount: valid ? value : 1 },
+		}),
+		enabled: valid && open,
+	});
+	const priced = valid && quote.data ? quote.data : null;
 
 	function onSubmit(event: FormEvent) {
 		event.preventDefault();
@@ -268,7 +278,7 @@ function RequestPayoutDialog({
 			open={open}
 			onOpenChange={onOpenChange}
 			title="Request a payout"
-			description="Converted to TON at the current rate when it's sent."
+			description="Fees come out of the amount; the rest is converted to TON when it's sent."
 		>
 			{!balance.payout_address ? (
 				<div className="flex flex-col gap-4">
@@ -288,7 +298,7 @@ function RequestPayoutDialog({
 					<Field
 						label="Amount in Stars"
 						htmlFor="payout-amount"
-						hint={`Between ★ ${formatStars(balance.plan.min_payout_stars)} and ★ ${formatStars(max)}`}
+						hint={`Between ★ ${formatStars(balance.plan.min_payout_stars)} and ★ ${formatStars(balance.withdrawable)}`}
 					>
 						<div className="flex gap-2">
 							<input
@@ -296,7 +306,7 @@ function RequestPayoutDialog({
 								type="number"
 								inputMode="numeric"
 								min={balance.plan.min_payout_stars}
-								max={max}
+								max={balance.withdrawable}
 								step={1}
 								value={amount}
 								onChange={(event) => setAmount(event.target.value)}
@@ -304,27 +314,41 @@ function RequestPayoutDialog({
 							/>
 							<Button
 								variant="secondary"
-								onClick={() => setAmount(String(max))}
+								onClick={() => setAmount(String(balance.withdrawable))}
 							>
 								Max
 							</Button>
 						</div>
 					</Field>
 					<dl className="flex flex-col divide-y divide-border rounded-xl border border-border text-[13px]">
-						{[
-							["Payout", `★ ${formatStars(valid ? value : 0)}`],
-							["Payout fee", `★ ${formatStars(balance.plan.payout_fee_stars)}`],
-							[
-								"Deducted from balance",
-								`★ ${formatStars((valid ? value : 0) + balance.plan.payout_fee_stars)}`,
-							],
-							["To wallet", shortAddress(balance.payout_address)],
-						].map(([label, text]) => (
-							<div key={label} className="flex justify-between px-4 py-2.5">
-								<dt className="text-muted-foreground">{label}</dt>
-								<dd className="font-semibold">{text}</dd>
-							</div>
-						))}
+						<div className="flex justify-between px-4 py-2.5">
+							<dt className="text-muted-foreground">Cashing out</dt>
+							<dd className="font-semibold">
+								★ {formatStars(valid ? value : 0)}
+							</dd>
+						</div>
+						<div className="flex justify-between px-4 py-2.5">
+							<dt className="text-muted-foreground">Network gas</dt>
+							<dd className="font-semibold">
+								− ★ {formatStars(priced?.gas ?? 0)}
+							</dd>
+						</div>
+						<div className="flex justify-between px-4 py-2.5">
+							<dt className="text-muted-foreground">StarPay fee</dt>
+							<dd className="font-semibold">
+								− ★ {formatStars((priced?.percent ?? 0) + (priced?.flat ?? 0))}
+							</dd>
+						</div>
+						<div className="flex justify-between px-4 py-2.5 font-bold">
+							<dt>You receive</dt>
+							<dd>★ {formatStars(priced?.net ?? 0)}</dd>
+						</div>
+						<div className="flex justify-between px-4 py-2.5">
+							<dt className="text-muted-foreground">To wallet</dt>
+							<dd className="font-semibold">
+								{shortAddress(balance.payout_address)}
+							</dd>
+						</div>
 					</dl>
 					{!balance.automatic_payouts && (
 						<p className="text-[12.5px] text-muted-foreground">
@@ -336,7 +360,11 @@ function RequestPayoutDialog({
 						<Button variant="secondary" onClick={() => onOpenChange(false)}>
 							Cancel
 						</Button>
-						<Button type="submit" disabled={!valid} loading={request.isPending}>
+						<Button
+							type="submit"
+							disabled={!priced || priced.net <= 0}
+							loading={request.isPending}
+						>
 							Request payout
 						</Button>
 					</div>
@@ -369,7 +397,14 @@ function Payouts() {
 				label="Payouts"
 				columns={PAYOUT_COLUMNS}
 				className="min-w-[680px]"
-				head={["Requested", "Amount", "TON", "Reference", "Status", ""]}
+				head={[
+					"Requested",
+					"Cashed out",
+					"Sent",
+					"TON / reference",
+					"Status",
+					"",
+				]}
 				state={
 					payouts.isPending ? (
 						<RowsSkeleton rows={3} />
@@ -393,12 +428,16 @@ function Payouts() {
 						<div className="font-bold">
 							<Star /> {formatStars(payout.amount)}
 						</div>
-						<Mono>{payout.ton_amount ?? "—"}</Mono>
+						<div title={`fee ★ ${formatStars(payout.fee)}`}>
+							<Star /> {formatStars(payout.net)}
+						</div>
 						<Mono
 							className="truncate text-muted-foreground"
 							title={payout.failure_reason ?? payout.tx_reference ?? ""}
 						>
-							{payout.failure_reason ?? payout.tx_reference ?? "—"}
+							{payout.ton_amount
+								? `${payout.ton_amount} TON`
+								: (payout.failure_reason ?? payout.tx_reference ?? "—")}
 						</Mono>
 						<PayoutStatus status={payout.status} />
 						<div className="text-right">

@@ -25,3 +25,33 @@ export async function planFor(
 	if (!plan) throw new Error("No default fee plan configured");
 	return plan;
 }
+
+export type PayoutFee = {
+	/** TON network gas, priced in Stars at the current rate. */
+	gas: number;
+	/** Percentage of the requested amount. */
+	percent: number;
+	/** Flat part. */
+	flat: number;
+	total: number;
+	/** amount - total: converted to TON and sent. */
+	net: number;
+};
+
+/**
+ * Payout fees come out of the requested amount, so a merchant cashing out 100
+ * receives 100 minus gas and commission. Each part rounds up, so StarPay never
+ * under-collects the gas it pays.
+ */
+export function computePayoutFee(
+	amountStars: number,
+	plan: Pick<FeePlan, "payoutFeeBps" | "payoutFeeStars" | "payoutGasNano">,
+	rates: { tonUsd: number; starUsd: number },
+): PayoutFee {
+	const gasTon = Number(plan.payoutGasNano) / 1e9;
+	const gas = Math.ceil((gasTon * rates.tonUsd) / rates.starUsd);
+	const percent = Math.ceil((amountStars * plan.payoutFeeBps) / 10_000);
+	const flat = plan.payoutFeeStars;
+	const total = gas + percent + flat;
+	return { gas, percent, flat, total, net: amountStars - total };
+}

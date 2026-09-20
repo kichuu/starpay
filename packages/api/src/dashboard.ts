@@ -98,6 +98,9 @@ export const dashboardRouter = os.router({
 		balance: merchant.payouts.balance.handler(({ context }) =>
 			context.services.payouts.balance(context.scope),
 		),
+		quote: merchant.payouts.quote.handler(({ context, input }) =>
+			context.services.payouts.quote(context.scope, input.amount),
+		),
 		list: merchant.payouts.list.handler(({ context, input }) =>
 			context.services.payouts.list(context.scope, input),
 		),

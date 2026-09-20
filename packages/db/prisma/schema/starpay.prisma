@@ -452,8 +452,11 @@ model FeePlan {
   percentBps     Int
   /// Flat commission per payment, in Stars.
   fixedStars     Int      @default(0)
-  /// Charged per payout, in Stars (covers TON network fees).
+  /// Payout fee, taken out of the amount: percentage + flat Stars + network gas.
+  payoutFeeBps   Int      @default(0)
   payoutFeeStars Int      @default(0)
+  /// Network gas reserved per payout, in nano-TON; priced in Stars when the payout is requested.
+  payoutGasNano  BigInt   @default(10000000)
   minPayoutStars Int      @default(1000)
   /// Days a payment stays pending before it can be withdrawn (Telegram holds Stars ~21 days).
   holdDays       Int      @default(21)
@@ -527,8 +530,13 @@ model Payout {
   id             String       @id
   organizationId String
   mode           Mode
+  /// Requested amount, debited from the merchant's balance.
   amountStars    Int
+  /// Total fee taken out of it (see feeBreakdown).
   feeStars       Int
+  /// amountStars - feeStars: what is converted to TON and sent.
+  netStars       Int      @default(0)
+  feeBreakdown   Json     @default("{}")
   status         PayoutStatus @default(requested)
   tonAddress     String
   /// Conversion used when sent: USD per Star and USD per TON.

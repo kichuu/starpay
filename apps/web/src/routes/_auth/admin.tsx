@@ -545,7 +545,12 @@ function PayoutActionDialog({
 const PLAN_FIELDS = [
 	["percent_bps", "Commission (basis points)", "500 = 5%"],
 	["fixed_stars", "Flat fee per payment (Stars)", ""],
-	["payout_fee_stars", "Payout fee (Stars)", "Covers TON network fees"],
+	[
+		"payout_fee_bps",
+		"Payout commission (basis points)",
+		"Taken out of each payout",
+	],
+	["payout_fee_stars", "Flat payout fee (Stars)", ""],
 	["min_payout_stars", "Minimum payout (Stars)", ""],
 	["hold_days", "Hold (days)", "Telegram holds Stars ~21 days"],
 	[
@@ -557,7 +562,14 @@ const PLAN_FIELDS = [
 ] as const;
 
 function planSummary(plan: FeePlanView) {
-	return `${plan.percent_bps / 100}%${plan.fixed_stars ? ` + ★${plan.fixed_stars}` : ""} · hold ${plan.hold_days}d · reserve ${plan.reserve_bps / 100}%/${plan.reserve_days}d · payout fee ★${plan.payout_fee_stars} · min ★${plan.min_payout_stars}`;
+	const payoutFee = [
+		plan.payout_fee_bps ? `${plan.payout_fee_bps / 100}%` : "",
+		plan.payout_fee_stars ? `★${plan.payout_fee_stars}` : "",
+		`${plan.payout_gas_ton} TON gas`,
+	]
+		.filter(Boolean)
+		.join(" + ");
+	return `${plan.percent_bps / 100}%${plan.fixed_stars ? ` + ★${plan.fixed_stars}` : ""} per payment · hold ${plan.hold_days}d · reserve ${plan.reserve_bps / 100}%/${plan.reserve_days}d · payout ${payoutFee} · min ★${plan.min_payout_stars}`;
 }
 
 function FeePlans() {
@@ -654,7 +666,9 @@ function FeePlanDialog({
 			name: String(form.get("name") ?? "").trim(),
 			percent_bps: number("percent_bps"),
 			fixed_stars: number("fixed_stars"),
+			payout_fee_bps: number("payout_fee_bps"),
 			payout_fee_stars: number("payout_fee_stars"),
+			payout_gas_ton: String(form.get("payout_gas_ton") ?? "0").trim(),
 			min_payout_stars: number("min_payout_stars"),
 			hold_days: number("hold_days"),
 			reserve_bps: number("reserve_bps"),
@@ -682,6 +696,21 @@ function FeePlanDialog({
 						required
 						maxLength={64}
 						defaultValue={plan?.name}
+						className={inputClass}
+					/>
+				</Field>
+				<Field
+					label="Network gas per payout (TON)"
+					htmlFor="plan-gas"
+					hint="Reserved to cover the TON transfer; priced in Stars when a payout is requested"
+				>
+					<input
+						id="plan-gas"
+						name="payout_gas_ton"
+						inputMode="decimal"
+						pattern="[0-9]*\.?[0-9]*"
+						required
+						defaultValue={plan?.payout_gas_ton ?? "0.01"}
 						className={inputClass}
 					/>
 				</Field>

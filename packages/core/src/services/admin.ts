@@ -13,6 +13,7 @@ import {
 	serializeFeePlan,
 	serializePayout,
 } from "../serializers";
+import { tonToNano } from "../ton";
 import { audit } from "./audit";
 import type { BotService } from "./bots";
 import type { PayoutService } from "./payouts";
@@ -23,7 +24,12 @@ const toPlanData = (input: Partial<FeePlanInput>) => ({
 	name: input.name,
 	percentBps: input.percent_bps,
 	fixedStars: input.fixed_stars,
+	payoutFeeBps: input.payout_fee_bps,
 	payoutFeeStars: input.payout_fee_stars,
+	payoutGasNano:
+		input.payout_gas_ton === undefined
+			? undefined
+			: tonToNano(input.payout_gas_ton),
 	minPayoutStars: input.min_payout_stars,
 	holdDays: input.hold_days,
 	reserveBps: input.reserve_bps,
@@ -196,7 +202,9 @@ export function createAdminService(
 					name: input.name,
 					percentBps: input.percent_bps,
 					fixedStars: input.fixed_stars,
+					payoutFeeBps: input.payout_fee_bps,
 					payoutFeeStars: input.payout_fee_stars,
+					payoutGasNano: tonToNano(input.payout_gas_ton),
 					minPayoutStars: input.min_payout_stars,
 					holdDays: input.hold_days,
 					reserveBps: input.reserve_bps,

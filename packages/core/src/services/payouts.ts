@@ -14,7 +14,7 @@ import {
 } from "../deps";
 import { errors } from "../errors";
 import { newId } from "../ids";
-import { planFor } from "../ledger/fees";
+import { computePayoutFee, planFor } from "../ledger/fees";
 import {
 	accountId,
 	balancesOf,
@@ -24,7 +24,7 @@ import {
 } from "../ledger/ledger";
 import { type PageArgs, pageQuery, toPage } from "../pagination";
 import { PLATFORM_ORG_ID } from "../platform";
-import { serializeFeePlan, serializePayout } from "../serializers";
+import { serializeFeePlan, serializePayout, toJson } from "../serializers";
 import { isValidTonAddress, starsToNanoTon } from "../ton";
 import { audit } from "./audit";
 import type { BotService } from "./bots";
@@ -34,6 +34,15 @@ const RESEND_AFTER_MS = 3 * 60_000;
 
 export function createPayoutService(deps: Deps, bots: BotService) {
 	const { db } = deps;
+
+	/** Live TON price, surfaced as a clear error when the feed is down. */
+	async function tonUsd() {
+		try {
+			return await deps.rates.tonUsd();
+		} catch {
+			throw errors.payoutPricingUnavailable();
+		}
+	}
 
 	/** Merchant balances computed inside `tx` (merchant view: positive = owed to them). */
 	async function computeBalances(tx: Tx, scope: Scope) {
@@ -90,7 +99,7 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 				{
 					type: "merchant_payouts",
 					organizationId: payout.organizationId,
-					amount: payout.amountStars,
+					amount: payout.netStars,
 				},
 				{
 					type: "platform_fees",
@@ -100,7 +109,7 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 				{
 					type: "merchant_available",
 					organizationId: payout.organizationId,
-					amount: -(payout.amountStars + payout.feeStars),
+					amount: -payout.amountStars,
 				},
 			],
 		});
@@ -119,12 +128,12 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 				{
 					type: "merchant_payouts",
 					organizationId: payout.organizationId,
-					amount: payout.amountStars,
+					amount: payout.netStars,
 				},
 				{
 					type: "platform_treasury",
 					organizationId: PLATFORM_ORG_ID,
-					amount: -payout.amountStars,
+					amount: -payout.netStars,
 				},
 			],
 		});
@@ -236,6 +245,16 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 			return toPage(rows, args.limit, serializePayout);
 		},
 
+		/** Prices a payout without creating it (what the merchant sees before confirming). */
+		async quote(scope: Scope, amountStars: number) {
+			const plan = await planFor(db, scope.organizationId);
+			const fee = computePayoutFee(amountStars, plan, {
+				tonUsd: await tonUsd(),
+				starUsd: deps.config.starUsdRate ?? DEFAULT_STAR_USD_RATE,
+			});
+			return { amount: amountStars, ...fee };
+		},
+
 		async request(scope: Scope, amountStars: number, actor: Actor) {
 			const settings = await db.merchantSettings.findUnique({
 				where: { organizationId: scope.organizationId },
@@ -244,6 +263,11 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 			if (!address || !isValidTonAddress(address))
 				throw errors.payoutAddressMissing();
 
+			// Priced before the transaction: it needs the live TON rate.
+			const rates = {
+				tonUsd: await tonUsd(),
+				starUsd: deps.config.starUsdRate ?? DEFAULT_STAR_USD_RATE,
+			};
 			const now = deps.now();
 			const payout = await db.$transaction(async (tx) => {
 				// Serialise payout requests per merchant so two can't spend the same balance.
@@ -257,9 +281,11 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 				const { plan } = balances;
 				if (amountStars < plan.minPayoutStars)
 					throw errors.payoutBelowMinimum(plan.minPayoutStars);
-				const needed = amountStars + plan.payoutFeeStars;
-				if (needed > balances.withdrawable)
-					throw errors.insufficientBalance(balances.withdrawable, needed);
+				if (amountStars > balances.withdrawable)
+					throw errors.insufficientBalance(balances.withdrawable, amountStars);
+				// Gas and commission come out of the amount, so it has to cover them.
+				const fee = computePayoutFee(amountStars, plan, rates);
+				if (fee.net <= 0) throw errors.payoutBelowMinimum(plan.minPayoutStars);
 
 				const created = await tx.payout.create({
 					data: {
@@ -267,7 +293,13 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 						organizationId: scope.organizationId,
 						mode: scope.mode,
 						amountStars,
-						feeStars: plan.payoutFeeStars,
+						feeStars: fee.total,
+						netStars: fee.net,
+						feeBreakdown: toJson({
+							gas: fee.gas,
+							percent: fee.percent,
+							flat: fee.flat,
+						}),
 						tonAddress: address,
 						requestedById: actor.id,
 						createdAt: now,
@@ -285,17 +317,17 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 						{
 							type: "merchant_available",
 							organizationId: scope.organizationId,
-							amount: needed,
+							amount: amountStars,
 						},
 						{
 							type: "merchant_payouts",
 							organizationId: scope.organizationId,
-							amount: -amountStars,
+							amount: -fee.net,
 						},
 						{
 							type: "platform_fees",
 							organizationId: PLATFORM_ORG_ID,
-							amount: -plan.payoutFeeStars,
+							amount: -fee.total,
 						},
 					],
 				});
@@ -446,7 +478,8 @@ export function createPayoutService(deps: Deps, bots: BotService) {
 			if (!next) return "idle";
 			const starUsd = deps.config.starUsdRate ?? DEFAULT_STAR_USD_RATE;
 			const tonUsd = await deps.rates.tonUsd();
-			const amountNano = starsToNanoTon(next.amountStars, starUsd, tonUsd);
+			// Only the net amount is sent; the fee stayed with StarPay.
+			const amountNano = starsToNanoTon(next.netStars, starUsd, tonUsd);
 			const seqno = await wallet.getSeqno();
 			const { count } = await db.payout.updateMany({
 				where: { id: next.id, status: "requested" },

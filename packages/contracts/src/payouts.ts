@@ -16,7 +16,11 @@ export const FeePlanView = z.object({
 	name: z.string(),
 	percent_bps: z.int().min(0).max(10_000),
 	fixed_stars: z.int().min(0),
+	/** Payout fee: percentage + flat Stars + network gas, all taken out of the amount. */
+	payout_fee_bps: z.int().min(0).max(10_000),
 	payout_fee_stars: z.int().min(0),
+	/** Network gas reserved per payout, in TON. */
+	payout_gas_ton: z.string(),
 	min_payout_stars: z.int().min(1),
 	hold_days: z.int().min(0).max(365),
 	reserve_bps: z.int().min(0).max(10_000),
@@ -38,8 +42,14 @@ export const PayoutObject = z.object({
 	object: z.literal("payout"),
 	livemode: z.boolean(),
 	status: PayoutStatus,
+	/** Requested amount, taken from the merchant's balance. */
 	amount: Stars,
 	fee: Stars,
+	/** amount - fee: what is converted to TON and sent. */
+	net: Stars,
+	fee_breakdown: z
+		.object({ gas: z.int(), percent: z.int(), flat: z.int() })
+		.partial(),
 	ton_address: z.string(),
 	/** Decimal TON actually sent, once known. */
 	ton_amount: z.string().nullable(),
@@ -87,8 +97,19 @@ export const MerchantLedgerEntry = z.object({
 });
 export type MerchantLedgerEntry = z.infer<typeof MerchantLedgerEntry>;
 
+export const PayoutQuote = z.object({
+	amount: Stars,
+	gas: z.int(),
+	percent: z.int(),
+	flat: z.int(),
+	total: z.int(),
+	net: z.int(),
+});
+
 export const payoutsContract = {
 	balance: oc.output(MerchantBalance),
+	/** Live pricing for an amount before the merchant confirms. */
+	quote: oc.input(z.object({ amount: Stars.min(1) })).output(PayoutQuote),
 	list: oc.input(ListInput).output(listOf(PayoutObject)),
 	request: oc.input(z.object({ amount: Stars.min(1) })).output(PayoutObject),
 	cancel: oc.input(z.object({ id: prefixedId("po") })).output(PayoutObject),

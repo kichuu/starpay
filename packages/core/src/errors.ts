@@ -83,6 +83,12 @@ export const errors = {
 			`You can withdraw ${withdrawable} Stars; this payout needs ${needed} including fees`,
 			{ withdrawable, needed },
 		),
+	payoutPricingUnavailable: () =>
+		new DomainError(
+			"PAYOUT_NOT_ALLOWED",
+			503,
+			"Payout pricing is unavailable right now; try again shortly",
+		),
 	payoutNotAllowed: (id: string, status: string) =>
 		new DomainError("PAYOUT_NOT_ALLOWED", 409, `Payout ${id} is ${status}`),
 	notHosted: () =>

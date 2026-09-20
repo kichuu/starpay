@@ -196,7 +196,9 @@ export function serializeFeePlan(plan: FeePlan): FeePlanView {
 		name: plan.name,
 		percent_bps: plan.percentBps,
 		fixed_stars: plan.fixedStars,
+		payout_fee_bps: plan.payoutFeeBps,
 		payout_fee_stars: plan.payoutFeeStars,
+		payout_gas_ton: formatNanoTon(plan.payoutGasNano),
 		min_payout_stars: plan.minPayoutStars,
 		hold_days: plan.holdDays,
 		reserve_bps: plan.reserveBps,
@@ -213,6 +215,8 @@ export function serializePayout(payout: Payout): PayoutObject {
 		status: payout.status,
 		amount: payout.amountStars,
 		fee: payout.feeStars,
+		net: payout.netStars,
+		fee_breakdown: (payout.feeBreakdown ?? {}) as PayoutObject["fee_breakdown"],
 		ton_address: payout.tonAddress,
 		ton_amount:
 			payout.tonAmountNano === null

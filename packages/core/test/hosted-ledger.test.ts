@@ -11,7 +11,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { SecretBox } from "../src/crypto";
 import type { Actor, Deps, Scope } from "../src/deps";
 import { createServices } from "../src/index";
-import { computeFee } from "../src/ledger/fees";
+import { computeFee, computePayoutFee } from "../src/ledger/fees";
 import { PLATFORM_ORG_ID } from "../src/platform";
 import type { TonWallet } from "../src/ton";
 import { FakeTelegram } from "./fake-telegram";
@@ -82,6 +82,14 @@ beforeEach(async () => {
 		mode: "live",
 	};
 
+	const stale = await db.payout.findMany({
+		where: { mode: "live", status: { in: ["requested", "sending"] } },
+		select: { id: true },
+	});
+	for (const payout of stale) {
+		await services.payouts.markFailed(payout.id, "cleared by test setup", admin);
+	}
+
 	await services.admin.connectPlatformBot(
 		"live",
 		`${telegram.botId}:AAH-platform-token-000000000000000`,
@@ -99,7 +107,9 @@ beforeEach(async () => {
 		name: `test-${scope.organizationId}`,
 		percent_bps: 500,
 		fixed_stars: 2,
+		payout_fee_bps: 0,
 		payout_fee_stars: 10,
+		payout_gas_ton: "0",
 		min_payout_stars: 100,
 		hold_days: 21,
 		reserve_bps: 1000,
@@ -161,6 +171,18 @@ describe("fees", () => {
 		expect(computeFee(10, { percentBps: 500, fixedStars: 0 })).toBe(1); // 0.5 → 1
 		expect(computeFee(9, { percentBps: 500, fixedStars: 0 })).toBe(0); // 0.45 → 0
 		expect(computeFee(1, { percentBps: 500, fixedStars: 5 })).toBe(1);
+	});
+
+	it("takes payout gas and commission out of the amount", () => {
+		// 0.01 TON of gas at $5/TON is $0.05, which is 4 Stars at $0.013 each (rounded up).
+		const plan = { payoutFeeBps: 100, payoutFeeStars: 1, payoutGasNano: 10_000_000n };
+		expect(computePayoutFee(1000, plan, { tonUsd: 5, starUsd: 0.013 })).toEqual({
+			gas: 4,
+			percent: 10,
+			flat: 1,
+			total: 15,
+			net: 985,
+		});
 	});
 });
 
@@ -226,12 +248,13 @@ describe("hosted payments", () => {
 			{ payout_ton_address: TON_ADDRESS },
 			merchant,
 		);
-		await services.payouts.request(scope, 558, merchant); // 558 + 10 fee = everything
+		// The whole balance: 558 leaves, 10 of it is the payout fee, 548 gets sent.
+		await services.payouts.request(scope, 558, merchant);
 
 		await services.payments.refund(scope, order.id, merchant);
 		expect(await balance()).toMatchObject({
-			available: -568,
-			in_payout: 558,
+			available: -558,
+			in_payout: 548,
 			withdrawable: 0,
 		});
 		await expectBooksBalance();
@@ -278,18 +301,28 @@ describe("payouts", () => {
 			services.payouts.request(scope, 50, merchant),
 		).rejects.toMatchObject({ code: "PAYOUT_BELOW_MINIMUM" });
 		await expect(
-			services.payouts.request(scope, 560, merchant),
+			services.payouts.request(scope, 600, merchant),
 		).rejects.toMatchObject({
 			code: "INSUFFICIENT_BALANCE",
-			data: { withdrawable: 568, needed: 570 },
+			data: { withdrawable: 568, needed: 600 },
+		});
+		// The fee comes out of the amount, so the whole balance can be cashed out.
+		expect(await services.payouts.quote(scope, 568)).toMatchObject({
+			total: 10,
+			net: 558,
 		});
 	});
 
 	it("moves money to in-payout, charges the fee, and refunds both on cancel", async () => {
 		await fundedMerchant();
 		const payout = await services.payouts.request(scope, 300, merchant);
-		expect(payout).toMatchObject({ status: "requested", amount: 300, fee: 10 });
-		expect(await balance()).toMatchObject({ available: 258, in_payout: 300 });
+		expect(payout).toMatchObject({
+			status: "requested",
+			amount: 300,
+			fee: 10,
+			net: 290,
+		});
+		expect(await balance()).toMatchObject({ available: 268, in_payout: 290 });
 
 		await services.payouts.cancel(scope, payout.id, merchant);
 		expect(await balance()).toMatchObject({ available: 568, in_payout: 0 });
@@ -311,18 +344,19 @@ describe("payouts", () => {
 		expect(
 			results.filter((result) => result.status === "fulfilled"),
 		).toHaveLength(1);
-		expect(await balance()).toMatchObject({ available: 158, in_payout: 400 });
+		expect(await balance()).toMatchObject({ available: 168, in_payout: 390 });
 	});
 
 	it("marks a manual payout paid (money leaves the treasury) or failed (money returns)", async () => {
 		await fundedMerchant();
 		const first = await services.payouts.request(scope, 200, merchant);
 		await services.admin.markPaid(first.id, "ton-tx-abc", admin);
-		expect(await balance()).toMatchObject({ available: 358, in_payout: 0 });
+		expect(await balance()).toMatchObject({ available: 368, in_payout: 0 });
 
 		const second = await services.payouts.request(scope, 200, merchant);
 		await services.admin.markFailed(second.id, "wallet rejected", admin);
-		expect(await balance()).toMatchObject({ available: 358, in_payout: 0 });
+		// Failing returns everything, fee included.
+		expect(await balance()).toMatchObject({ available: 368, in_payout: 0 });
 		await expect(
 			services.admin.markPaid(second.id, "late", admin),
 		).rejects.toMatchObject({ code: "PAYOUT_NOT_ALLOWED" });
@@ -345,22 +379,12 @@ describe("payouts", () => {
 		wallet = new FakeWallet();
 		const payout = await services.payouts.request(scope, 500, merchant);
 
-		// Drain any payouts other tests left queued in this shared database.
-		let result = await services.payouts.processNext("live");
-		for (
-			let i = 0;
-			i < 20 && wallet.transfers.at(-1)?.to !== TON_ADDRESS;
-			i++
-		) {
-			wallet.seqno++;
-			result = await services.payouts.processNext("live");
-		}
-		expect(result).toBe("waiting");
+		expect(await services.payouts.processNext("live")).toBe("waiting");
 		const transfer = wallet.transfers.at(-1);
-		// 500 Stars × $0.013 ÷ $5 per TON = 1.3 TON
+		// 500 requested − 10 fee = 490 Stars × $0.013 ÷ $5 per TON = 1.274 TON
 		expect(transfer).toMatchObject({
 			to: TON_ADDRESS,
-			amountNano: 1_300_000_000n,
+			amountNano: 1_274_000_000n,
 		});
 
 		// Nothing new is sent while the transfer is unconfirmed.
@@ -375,7 +399,7 @@ describe("payouts", () => {
 		expect(paid).toMatchObject({
 			id: payout.id,
 			status: "paid",
-			ton_amount: "1.3",
+			ton_amount: "1.274",
 		});
 		expect(await balance()).toMatchObject({ in_payout: 0 });
 		await expectBooksBalance();
@@ -385,15 +409,9 @@ describe("payouts", () => {
 		await fundedMerchant();
 		wallet = new FakeWallet();
 		await services.payouts.request(scope, 500, merchant);
-		for (
-			let i = 0;
-			i < 20 && wallet.transfers.at(-1)?.to !== TON_ADDRESS;
-			i++
-		) {
-			await services.payouts.processNext("live");
-			if (wallet.transfers.at(-1)?.to !== TON_ADDRESS) wallet.seqno++;
-		}
+		await services.payouts.processNext("live");
 		const first = wallet.transfers.at(-1);
+		expect(first).toMatchObject({ to: TON_ADDRESS });
 
 		clock = new Date(clock.getTime() + 4 * 60_000);
 		expect(await services.payouts.processNext("live")).toBe("waiting");

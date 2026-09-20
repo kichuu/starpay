@@ -129,3 +129,10 @@ export function starsToNanoTon(
 ): bigint {
 	return BigInt(Math.round((stars * starUsd * 1e9) / tonUsd));
 }
+
+/** "0.01" → 10000000n nano-TON. */
+export function tonToNano(amount: string): bigint {
+	const [whole = "0", fraction = ""] = amount.trim().split(".");
+	if (!/^\d*$/.test(whole) || !/^\d*$/.test(fraction)) throw new Error(`Not a TON amount: ${amount}`);
+	return BigInt(whole) * 1_000_000_000n + BigInt((fraction + "000000000").slice(0, 9) || "0");
+}
