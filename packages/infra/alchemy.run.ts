@@ -50,6 +50,13 @@ export const databaseBindings = {
 
 export const databaseProviders = Layer.mergeAll(Command.providers(), Prisma.providers());
 
+/** Includes an environment variable only when it has a value. */
+function optionalEnv(name: string, options: { secret?: boolean } = {}) {
+  const value = process.env[name]?.trim();
+  if (!value) return {};
+  return { [name]: options.secret ? Redacted.make(value) : value };
+}
+
 export const server = Prisma.Compute(
   "server",
   Effect.gen(function* () {
@@ -74,16 +81,13 @@ export const server = Prisma.Compute(
         // The server's public HTTPS URL (your api.* domain); Telegram posts bot updates here.
         PUBLIC_API_URL: Config.String("PUBLIC_API_URL"),
         WORKER_ENABLED: Config.String("WORKER_ENABLED").pipe(Config.withDefault("true")),
-        PLATFORM_ADMIN_USER_IDS: Config.String("PLATFORM_ADMIN_USER_IDS").pipe(Config.withDefault("")),
         STAR_USD_RATE: Config.String("STAR_USD_RATE").pipe(Config.withDefault("0.013")),
-        // Hot-wallet mnemonics: empty = payouts are processed by hand from the admin page.
-        TON_PAYOUT_MNEMONIC_LIVE: Config.Redacted("TON_PAYOUT_MNEMONIC_LIVE").pipe(
-          Config.withDefault(Redacted.make("")),
-        ),
-        TON_PAYOUT_MNEMONIC_TEST: Config.Redacted("TON_PAYOUT_MNEMONIC_TEST").pipe(
-          Config.withDefault(Redacted.make("")),
-        ),
-        TONCENTER_API_KEY: Config.Redacted("TONCENTER_API_KEY").pipe(Config.withDefault(Redacted.make(""))),
+        // Prisma Compute rejects empty values, so unset optional vars are left out.
+        ...optionalEnv("PLATFORM_ADMIN_USER_IDS"),
+        ...optionalEnv("TONCENTER_API_KEY", { secret: true }),
+        // Hot-wallet mnemonics: unset = payouts are processed by hand from the admin page.
+        ...optionalEnv("TON_PAYOUT_MNEMONIC_LIVE", { secret: true }),
+        ...optionalEnv("TON_PAYOUT_MNEMONIC_TEST", { secret: true }),
       },
       healthCheck: { path: "/" },
       destroyOldDeployment: true,
