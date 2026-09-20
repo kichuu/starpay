@@ -157,7 +157,14 @@ pnpm -F @starpay/core test
 pnpm run deploy        # preview with: pnpm -F @starpay/infra plan
 ```
 
-Production settings live in gitignored `.env.production` files; see [Deployment](docs/PLAN.md#12-milestones) and the setup notes in `docs/`. Keep `ENCRYPTION_KEY` safe: it decrypts every stored bot token, so losing it means every merchant reconnects their bot.
+Deploys run with `NODE_ENV=production` and read two gitignored files:
+
+- `apps/server/.env.production` — `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY` (never the development ones), `BETTER_AUTH_URL` and `PUBLIC_API_URL` (the API's address), `CORS_ORIGIN` (the dashboard's), and optionally `PLATFORM_ADMIN_USER_IDS` and a TON payout mnemonic
+- `apps/web/.env.production` — `VITE_SERVER_URL`
+
+Alchemy needs a Prisma service token and an `ALCHEMY_PASSWORD` in `packages/infra/.env`. On a fresh stack, deploy once to learn the two URLs, put them in those files, and deploy again. Migrations are applied as part of the deploy.
+
+Keep `ENCRYPTION_KEY` safe: it decrypts every stored bot token, so losing it means every merchant has to reconnect their bot.
 
 ## Scripts
 
