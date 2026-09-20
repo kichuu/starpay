@@ -8,8 +8,14 @@
  */
 import { randomBytes } from "node:crypto";
 
-import { createDeps, createServices, type Scope } from "@starpay/core";
+import {
+	createDeps,
+	createServices,
+	PLATFORM_ORG_ID,
+	type Scope,
+} from "@starpay/core";
 import { TelegramClient } from "@starpay/telegram";
+import { Address } from "@ton/core";
 
 import { ENV } from "../env.server";
 import { auth, db } from "../services";
@@ -19,7 +25,13 @@ const PASSWORD = "starpay-demo";
 
 /** Answers the Bot API calls the seed needs without touching Telegram. */
 class StubTelegram extends TelegramClient {
-	constructor() {
+	constructor(
+		private readonly identity = {
+			id: 7_412_889_301,
+			first_name: "Pixel Forge Shop",
+			username: "pixelforge_bot",
+		},
+	) {
 		super({ token: "0:stub" });
 	}
 	override async call<T>(
@@ -27,12 +39,7 @@ class StubTelegram extends TelegramClient {
 		params: Record<string, unknown> = {},
 	): Promise<T> {
 		const results: Record<string, unknown> = {
-			getMe: {
-				id: 7_412_889_301,
-				is_bot: true,
-				first_name: "Pixel Forge Shop",
-				username: "pixelforge_bot",
-			},
+			getMe: { ...this.identity, is_bot: true },
 			createInvoiceLink: `https://t.me/$demo_${String(params.payload)}`,
 			refundStarPayment: true,
 		};
@@ -105,6 +112,7 @@ async function main() {
 	}
 	const existing = await db.member.findFirst({ where: { userId: user.id } });
 	if (existing) {
+		await seedHosted(existing.organizationId, user.id);
 		console.log(
 			`Demo merchant already exists. Sign in as ${EMAIL} / ${PASSWORD}.`,
 		);
@@ -249,12 +257,121 @@ async function main() {
 		data: { status: "expired", failureReason: "expired" },
 	});
 
+	await seedHosted(organizationId, user.id);
 	const key = await services.apiKeys.create(scope, "Local development", actor);
 	console.log(`Seeded ${orders} orders for Pixel Forge (Test mode).`);
 	console.log(
 		`Sign in as ${EMAIL} / ${PASSWORD}, then switch the sidebar to Test.`,
 	);
 	console.log(`Test API key (shown once): ${key.secret}`);
+}
+
+/**
+ * Hosted demo in LIVE mode: a stub StarPay platform bot takes Pixel Forge's live
+ * payments, so the Balance page shows ledger balances, payouts and history.
+ * Skipped if a live platform bot already exists.
+ */
+async function seedHosted(organizationId: string, userId: string) {
+	// Already seeded? (Connecting the platform bot alone isn't enough to tell.)
+	const seeded = await db.order.count({
+		where: { organizationId, mode: "live" },
+	});
+	if (seeded > 0) return;
+
+	let clock = new Date(Date.now() - 45 * 86_400_000);
+	const telegram = new StubTelegram({
+		id: 8_000_000_001,
+		first_name: "StarPay",
+		username: "starpay_pay_bot",
+	});
+	const services = createServices({
+		...createDeps(db, {
+			publicApiUrl: ENV.PUBLIC_API_URL,
+			encryptionKey: ENV.ENCRYPTION_KEY,
+		}),
+		now: () => clock,
+		telegram: () => telegram,
+	});
+	const actor = { type: "user" as const, id: userId };
+	const scope: Scope = { organizationId, mode: "live" };
+
+	await services.admin.connectPlatformBot(
+		"live",
+		"8000000001:AAH-demo-platform-token-00000000000",
+		actor,
+	);
+	const bot = await db.bot.findUniqueOrThrow({
+		where: {
+			organizationId_mode: { organizationId: PLATFORM_ORG_ID, mode: "live" },
+		},
+	});
+	for (const product of PRODUCTS) {
+		// An earlier partial run may have created them already.
+		await services.products
+			.create(scope, { ...product, type: "one_time" })
+			.catch(() => undefined);
+	}
+	// A syntactically valid demo wallet (nobody holds its keys).
+	const demoWallet = new Address(0, randomBytes(32)).toString({
+		bounceable: false,
+	});
+	await services.settings.update(
+		scope,
+		{ payout_ton_address: demoWallet },
+		actor,
+	);
+
+	let updateId = 1;
+	for (let day = 45; day >= 0; day--) {
+		for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) {
+			clock = new Date(
+				Date.now() - day * 86_400_000 - Math.random() * 12 * 3_600_000,
+			);
+			const product = pick(PRODUCTS);
+			const [username, firstName] = pick(BUYERS);
+			const buyer = {
+				id: 5_100_000_000 + username.length * 1000 + firstName.charCodeAt(0),
+				is_bot: false,
+				first_name: firstName,
+				username,
+			};
+			const order = await services.orders.create(
+				scope,
+				{ product: product.lookup_key, expires_in: 3600, delivery: "link" },
+				{ type: "api_key", id: "key_seed" },
+			);
+			if (Math.random() < 0.15) continue;
+			await services.telegramUpdates.handle(bot.id, bot.webhookSecret, {
+				update_id: updateId++,
+				message: {
+					message_id: updateId,
+					date: Math.floor(clock.getTime() / 1000),
+					chat: { id: buyer.id, type: "private" },
+					from: buyer,
+					successful_payment: {
+						currency: "XTR",
+						total_amount: product.price,
+						invoice_payload: order.id,
+						telegram_payment_charge_id: `stxHosted${randomBytes(10).toString("hex")}`,
+						provider_payment_charge_id: "",
+					},
+				},
+			});
+			if (Math.random() < 0.04)
+				await services.payments.refund(scope, order.id, actor);
+		}
+		// The release job, as the worker would have run it that day.
+		await services.settlement.releaseDue();
+	}
+
+	clock = new Date();
+	await services.settlement.releaseDue();
+	const first = await services.payouts.request(scope, 2000, actor);
+	await services.admin.markPaid(first.id, "demo-ton-tx-7f3a", actor);
+	await services.payouts.request(scope, 1500, actor);
+	console.log(
+		"Seeded the hosted demo (Live mode): StarPay platform bot, ledger, payouts.",
+	);
 }
 
 main()

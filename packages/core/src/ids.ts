@@ -27,6 +27,9 @@ export const ID_PREFIX = {
 	event: "evt",
 	endpoint: "we",
 	delivery: "whd",
+	ledgerTransaction: "ltx",
+	payout: "po",
+	feePlan: "fee",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;

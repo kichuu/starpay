@@ -74,6 +74,16 @@ export const server = Prisma.Compute(
         // The server's public HTTPS URL (your api.* domain); Telegram posts bot updates here.
         PUBLIC_API_URL: Config.String("PUBLIC_API_URL"),
         WORKER_ENABLED: Config.String("WORKER_ENABLED").pipe(Config.withDefault("true")),
+        PLATFORM_ADMIN_USER_IDS: Config.String("PLATFORM_ADMIN_USER_IDS").pipe(Config.withDefault("")),
+        STAR_USD_RATE: Config.String("STAR_USD_RATE").pipe(Config.withDefault("0.013")),
+        // Hot-wallet mnemonics: empty = payouts are processed by hand from the admin page.
+        TON_PAYOUT_MNEMONIC_LIVE: Config.Redacted("TON_PAYOUT_MNEMONIC_LIVE").pipe(
+          Config.withDefault(Redacted.make("")),
+        ),
+        TON_PAYOUT_MNEMONIC_TEST: Config.Redacted("TON_PAYOUT_MNEMONIC_TEST").pipe(
+          Config.withDefault(Redacted.make("")),
+        ),
+        TONCENTER_API_KEY: Config.Redacted("TONCENTER_API_KEY").pipe(Config.withDefault(Redacted.make(""))),
       },
       healthCheck: { path: "/" },
       destroyOldDeployment: true,

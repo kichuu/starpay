@@ -63,6 +63,34 @@ export const errors = {
 			409,
 			"This Idempotency-Key was already used with a different request",
 		),
+	payoutAddressMissing: () =>
+		new DomainError(
+			"PAYOUT_ADDRESS_MISSING",
+			409,
+			"Add a TON wallet address in Settings before requesting a payout",
+		),
+	payoutBelowMinimum: (minimum: number) =>
+		new DomainError(
+			"PAYOUT_BELOW_MINIMUM",
+			400,
+			`The minimum payout is ${minimum} Stars`,
+			{ param: "amount" },
+		),
+	insufficientBalance: (withdrawable: number, needed: number) =>
+		new DomainError(
+			"INSUFFICIENT_BALANCE",
+			409,
+			`You can withdraw ${withdrawable} Stars; this payout needs ${needed} including fees`,
+			{ withdrawable, needed },
+		),
+	payoutNotAllowed: (id: string, status: string) =>
+		new DomainError("PAYOUT_NOT_ALLOWED", 409, `Payout ${id} is ${status}`),
+	notHosted: () =>
+		new DomainError(
+			"NOT_HOSTED",
+			409,
+			"Balances and payouts apply to payments taken through StarPay's bot",
+		),
 	telegram: (description: string) =>
 		new DomainError("TELEGRAM_ERROR", 502, `Telegram error: ${description}`),
 };

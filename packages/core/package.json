@@ -14,6 +14,9 @@
 		"@starpay/contracts": "workspace:*",
 		"@starpay/db": "workspace:*",
 		"@starpay/telegram": "workspace:*",
+		"@ton/core": "^0.63.1",
+		"@ton/crypto": "^3.3.0",
+		"@ton/ton": "^16.3.0",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

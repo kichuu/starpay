@@ -49,5 +49,10 @@ export const ErrorCode = z.enum([
 	"TELEGRAM_ERROR",
 	"FORBIDDEN_ROLE",
 	"NO_ACTIVE_ORGANIZATION",
+	"PAYOUT_ADDRESS_MISSING",
+	"PAYOUT_BELOW_MINIMUM",
+	"INSUFFICIENT_BALANCE",
+	"PAYOUT_NOT_ALLOWED",
+	"NOT_HOSTED",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;

@@ -20,6 +20,7 @@ import {
 	SubscriptionObject,
 	SubscriptionStatus,
 } from "./objects";
+import { adminContract, payoutsContract } from "./payouts";
 import {
 	CreateProductInput,
 	ListProductsInput,
@@ -94,6 +95,8 @@ export type ApiKeyView = z.infer<typeof ApiKeyView>;
 
 export const SettingsView = z.object({
 	pay_support_text: z.string(),
+	/** TON wallet for hosted-mode payouts. */
+	payout_ton_address: z.string().max(80).nullable(),
 	notify_payment: z.boolean(),
 	notify_webhook_fail: z.boolean(),
 	notify_sub_cancel: z.boolean(),
@@ -239,6 +242,11 @@ export const dashboardContract = {
 			.output(ApiKeyView.extend({ secret: z.string() })),
 		revoke: oc.input(z.object({ id: prefixedId("key") })).output(Ok),
 	},
+	payouts: payoutsContract,
+	/** StarPay staff only (PLATFORM_ADMIN_USER_IDS). */
+	admin: adminContract,
+	/** The signed-in user's platform permissions (for showing the admin link). */
+	me: oc.output(z.object({ user_id: z.string(), platform_admin: z.boolean() })),
 	settings: {
 		get: oc.output(SettingsView),
 		update: oc.input(SettingsView.partial()).output(SettingsView),

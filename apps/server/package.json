@@ -23,6 +23,7 @@
     "@starpay/core": "workspace:*",
     "@starpay/db": "workspace:*",
     "@starpay/telegram": "workspace:*",
+    "@ton/core": "^0.63.1",
     "better-auth": "catalog:",
     "hono": "^4.13.7",
     "varlock": "catalog:",

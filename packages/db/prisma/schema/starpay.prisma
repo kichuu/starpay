@@ -52,8 +52,43 @@ enum EndpointStatus {
   disabled
 }
 
+/// direct = paid into the merchant's own bot (no custody, no fee);
+/// platform = paid into StarPay's bot and settled through the ledger.
+enum Settlement {
+  direct
+  platform
+}
+
+enum LedgerAccountType {
+  /// Asset: Stars held in the platform bot's Telegram balance.
+  platform_telegram
+  /// Asset: value withdrawn from Telegram (via Fragment) into StarPay's TON treasury, in Stars.
+  platform_treasury
+  /// Revenue: StarPay's fees.
+  platform_fees
+  /// Liability: merchant earnings still inside the hold period.
+  merchant_pending
+  /// Liability: merchant earnings they can withdraw.
+  merchant_available
+  /// Liability: requested payouts not yet sent.
+  merchant_payouts
+}
+
+enum PayoutStatus {
+  requested
+  sending
+  paid
+  failed
+  cancelled
+}
+
 model MerchantSettings {
   organizationId    String   @id
+  /// Overrides the default fee plan when set.
+  feePlanId         String?
+  feePlan           FeePlan? @relation(fields: [feePlanId], references: [id])
+  /// TON wallet for hosted-mode payouts (user-friendly or raw form).
+  payoutTonAddress  String?
   paySupportText    String   @default("")
   notifyPayment     Boolean  @default(true)
   notifyWebhookFail Boolean  @default(true)
@@ -179,6 +214,9 @@ model Order {
   paidAt            DateTime?
   refundedAt        DateTime?
   apiKeyId          String?
+  /// Bot that issued the invoice; Telegram updates are matched on it.
+  botId             String?
+  settlement        Settlement  @default(direct)
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
@@ -190,6 +228,7 @@ model Order {
   @@index([organizationId, mode, status])
   @@index([status, expiresAt])
   @@index([organizationId, mode, merchantReference])
+  @@index([botId])
   @@map("order")
 }
 
@@ -209,9 +248,18 @@ model Payment {
   subscriptionExpiresAt DateTime?
   refundedAt            DateTime?
   raw                   Json
+  settlement            Settlement    @default(direct)
+  /// Platform settlement only: StarPay's fee and the merchant's share (amountStars - feeStars).
+  feeStars              Int           @default(0)
+  netStars              Int?
+  feePlanId             String?
+  /// When the net amount moves from pending to available (payment + hold period).
+  availableAt           DateTime?
+  releasedAt            DateTime?
   createdAt             DateTime      @default(now())
 
   @@index([orderId])
+  @@index([settlement, releasedAt, availableAt])
   @@index([organizationId, mode, createdAt(sort: Desc)])
   @@map("payment")
 }
@@ -394,4 +442,111 @@ model AuditLog {
 
   @@index([organizationId, createdAt(sort: Desc)])
   @@map("audit_log")
+}
+
+/// Commission and payout terms. One plan is the default; merchants can be assigned another.
+model FeePlan {
+  id             String   @id
+  name           String
+  /// Commission in basis points of each payment (500 = 5%).
+  percentBps     Int
+  /// Flat commission per payment, in Stars.
+  fixedStars     Int      @default(0)
+  /// Charged per payout, in Stars (covers TON network fees).
+  payoutFeeStars Int      @default(0)
+  minPayoutStars Int      @default(1000)
+  /// Days a payment stays pending before it can be withdrawn (Telegram holds Stars ~21 days).
+  holdDays       Int      @default(21)
+  /// Rolling reserve: this share of the last `reserveDays` of released earnings can't be withdrawn.
+  reserveBps     Int      @default(0)
+  reserveDays    Int      @default(0)
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  merchants MerchantSettings[]
+
+  @@map("fee_plan")
+}
+
+/// Double-entry ledger (Stars). Balances are always SUM(ledger_entry.amount);
+/// entries are append-only and every transaction sums to zero (enforced by triggers).
+model LedgerAccount {
+  id             String            @id
+  mode           Mode
+  type           LedgerAccountType
+  /// Merchant organization, or "platform" for StarPay's own accounts.
+  organizationId String
+  createdAt      DateTime          @default(now())
+
+  entries LedgerEntry[]
+
+  @@unique([mode, type, organizationId])
+  @@map("ledger_account")
+}
+
+model LedgerTransaction {
+  id             String   @id
+  mode           Mode
+  /// payment | release | refund | payout_request | payout_paid | payout_reversed | fragment_withdrawal | adjustment
+  type           String
+  /// Merchant the transaction concerns, if any.
+  organizationId String?
+  paymentId      String?
+  payoutId       String?
+  description    String
+  /// e.g. "payment:pay_…"; makes posting idempotent.
+  idempotencyKey String   @unique
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  entries LedgerEntry[]
+
+  @@index([organizationId, mode, createdAt(sort: Desc)])
+  @@index([paymentId])
+  @@index([payoutId])
+  @@map("ledger_transaction")
+}
+
+model LedgerEntry {
+  id            String            @id @default(cuid())
+  transactionId String
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id])
+  accountId     String
+  account       LedgerAccount     @relation(fields: [accountId], references: [id])
+  /// Signed Stars: positive = debit, negative = credit.
+  amount        Int
+  createdAt     DateTime          @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([transactionId])
+  @@map("ledger_entry")
+}
+
+model Payout {
+  id             String       @id
+  organizationId String
+  mode           Mode
+  amountStars    Int
+  feeStars       Int
+  status         PayoutStatus @default(requested)
+  tonAddress     String
+  /// Conversion used when sent: USD per Star and USD per TON.
+  starUsdRate    Float?
+  tonUsdRate     Float?
+  tonAmountNano  BigInt?
+  /// Wallet seqno reserved for the transfer; makes automatic sending replay-safe.
+  walletSeqno    Int?
+  txReference    String?
+  failureReason  String?
+  requestedById  String
+  processedById  String?
+  createdAt      DateTime     @default(now())
+  sentAt         DateTime?
+  paidAt         DateTime?
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, mode, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("payout")
 }

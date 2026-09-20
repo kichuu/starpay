@@ -48,10 +48,21 @@ const requireRole = (minimum: MemberRole) =>
 			return next();
 		});
 
+/** StarPay staff: signed in and listed in PLATFORM_ADMIN_USER_IDS. No merchant or mode needed. */
+const platformAdmin = os.use(async ({ context, next }) => {
+	const user = context.session?.user;
+	if (!user) throw new ORPCError("UNAUTHORIZED");
+	if (!context.services.admin.isPlatformAdmin(user.id))
+		throw new ORPCError("FORBIDDEN");
+	return next({
+		context: { actor: { type: "user", id: user.id } satisfies Actor },
+	});
+});
+
 const developer = requireRole("developer");
 const owner = requireRole("owner");
 
-export const dashboardRouter = merchant.router({
+export const dashboardRouter = os.router({
 	onboarding: {
 		status: merchant.onboarding.status.handler(({ context }) =>
 			context.services.overview.onboarding(context.scope),
@@ -82,6 +93,111 @@ export const dashboardRouter = merchant.router({
 		transactions: merchant.balance.transactions.handler(({ context, input }) =>
 			context.services.balance.transactions(context.scope, input.offset),
 		),
+	},
+	payouts: {
+		balance: merchant.payouts.balance.handler(({ context }) =>
+			context.services.payouts.balance(context.scope),
+		),
+		list: merchant.payouts.list.handler(({ context, input }) =>
+			context.services.payouts.list(context.scope, input),
+		),
+		// Moving money out: owners only.
+		request: merchant.payouts.request
+			.use(owner)
+			.handler(({ context, input }) =>
+				context.services.payouts.request(
+					context.scope,
+					input.amount,
+					context.actor,
+				),
+			),
+		cancel: merchant.payouts.cancel
+			.use(owner)
+			.handler(({ context, input }) =>
+				context.services.payouts.cancel(context.scope, input.id, context.actor),
+			),
+		ledger: merchant.payouts.ledger.handler(({ context, input }) =>
+			context.services.payouts.ledger(context.scope, input),
+		),
+	},
+	me: os.me.handler(({ context }) => {
+		const user = context.session?.user;
+		if (!user) throw new ORPCError("UNAUTHORIZED");
+		return {
+			user_id: user.id,
+			platform_admin: context.services.admin.isPlatformAdmin(user.id),
+		};
+	}),
+	admin: {
+		overview: platformAdmin.admin.overview.handler(({ context, input }) =>
+			context.services.admin.overview(input.mode),
+		),
+		payouts: {
+			list: platformAdmin.admin.payouts.list.handler(({ context, input }) =>
+				context.services.admin.listPayouts(input),
+			),
+			markPaid: platformAdmin.admin.payouts.markPaid.handler(
+				({ context, input }) =>
+					context.services.admin.markPaid(
+						input.id,
+						input.tx_reference,
+						context.actor,
+					),
+			),
+			markFailed: platformAdmin.admin.payouts.markFailed.handler(
+				({ context, input }) =>
+					context.services.admin.markFailed(
+						input.id,
+						input.reason,
+						context.actor,
+					),
+			),
+		},
+		recordWithdrawal: platformAdmin.admin.recordWithdrawal.handler(
+			({ context, input }) =>
+				context.services.admin.recordWithdrawal(input, context.actor),
+		),
+		feePlans: {
+			list: platformAdmin.admin.feePlans.list.handler(({ context }) =>
+				context.services.admin.listFeePlans(),
+			),
+			create: platformAdmin.admin.feePlans.create.handler(
+				({ context, input }) => context.services.admin.createFeePlan(input),
+			),
+			update: platformAdmin.admin.feePlans.update.handler(
+				({ context, input }) => {
+					const { id, ...changes } = input;
+					return context.services.admin.updateFeePlan(id, changes);
+				},
+			),
+			setDefault: platformAdmin.admin.feePlans.setDefault.handler(
+				({ context, input }) =>
+					context.services.admin.setDefaultFeePlan(input.id),
+			),
+		},
+		merchants: {
+			list: platformAdmin.admin.merchants.list.handler(({ context, input }) =>
+				context.services.admin.listMerchants(input.mode),
+			),
+			setFeePlan: platformAdmin.admin.merchants.setFeePlan.handler(
+				({ context, input }) =>
+					context.services.admin.setMerchantFeePlan(
+						input.organization_id,
+						input.fee_plan_id,
+						context.actor,
+					),
+			),
+		},
+		platformBot: {
+			connect: platformAdmin.admin.platformBot.connect.handler(
+				({ context, input }) =>
+					context.services.admin.connectPlatformBot(
+						input.mode,
+						input.token,
+						context.actor,
+					),
+			),
+		},
 	},
 	bot: {
 		get: merchant.bot.get.handler(({ context }) =>

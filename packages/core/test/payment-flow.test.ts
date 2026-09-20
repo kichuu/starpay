@@ -13,6 +13,8 @@ import { FakeTelegram } from "./fake-telegram";
 import { TEST_DATABASE_URL } from "./global-setup";
 
 const db = createPrismaClient({ DATABASE_URL: TEST_DATABASE_URL });
+// Fixed key: bots persist across tests and runs in the shared test database.
+const TEST_BOX = new SecretBox(Buffer.alloc(32, 7).toString("base64"));
 afterAll(() => db.$disconnect());
 
 const BUYER = {
@@ -45,10 +47,12 @@ beforeEach(() => {
 	clock = new Date("2026-09-19T12:00:00Z");
 	const deps: Deps = {
 		db,
-		box: new SecretBox(randomBytes(32).toString("base64")),
+		box: TEST_BOX,
 		config: { publicApiUrl: "https://api.starpay.test", encryptionKey: "" },
 		now: () => clock,
 		telegram: () => telegram,
+		tonWallet: async () => null,
+		rates: { tonUsd: async () => 5 },
 	};
 	services = createServices(deps);
 	// A fresh merchant per test keeps tests independent on a shared database.

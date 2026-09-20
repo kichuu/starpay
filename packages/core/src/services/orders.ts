@@ -59,7 +59,7 @@ export function createOrderService(
 		load,
 
 		async create(scope: Scope, input: CreateOrderInput, actor: Actor) {
-			const bot = await bots.requireActive(scope);
+			const { bot, settlement } = await bots.invoiceBot(scope);
 			const product = await products.resolve(scope, input.product);
 			if (product.status === "archived")
 				throw errors.productArchived(product.id);
@@ -97,6 +97,8 @@ export function createOrderService(
 					metadata: input.metadata ?? {},
 					expiresAt: new Date(now.getTime() + input.expires_in * 1000),
 					apiKeyId: actor.type === "api_key" ? actor.id : null,
+					botId: bot.id,
+					settlement,
 					createdAt: now,
 					events: { create: { type: "created", createdAt: now } },
 				},
@@ -196,7 +198,8 @@ export function createOrderService(
 			const [events, payment] = await Promise.all([
 				db.orderEvent.findMany({
 					where: { orderId: id },
-					orderBy: { createdAt: "asc" },
+					// cuid IDs break ties between events recorded in the same millisecond.
+					orderBy: [{ createdAt: "asc" }, { id: "asc" }],
 				}),
 				db.payment.findFirst({
 					where: { orderId: id },

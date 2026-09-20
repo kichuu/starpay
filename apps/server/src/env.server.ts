@@ -16,6 +16,22 @@ const schema = z.object({
 	ENCRYPTION_KEY: z.string().min(44),
 	PUBLIC_API_URL: z.url(),
 	WORKER_ENABLED: z.stringbool().default(true),
+	/** Comma-separated user IDs allowed into the platform admin. */
+	PLATFORM_ADMIN_USER_IDS: z
+		.string()
+		.default("")
+		.transform((value) =>
+			value
+				.split(",")
+				.map((id) => id.trim())
+				.filter(Boolean),
+		),
+	/** USD Telegram pays per Star; used to convert payouts to TON. */
+	STAR_USD_RATE: z.coerce.number().positive().default(0.013),
+	/** Hot-wallet mnemonics (24 words) for automatic payouts. Unset = manual payouts. */
+	TON_PAYOUT_MNEMONIC_LIVE: z.string().optional(),
+	TON_PAYOUT_MNEMONIC_TEST: z.string().optional(),
+	TONCENTER_API_KEY: z.string().optional(),
 });
 
 function loadEnv() {

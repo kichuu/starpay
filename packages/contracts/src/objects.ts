@@ -61,6 +61,10 @@ export const OrderObject = z.object({
 	metadata: Metadata,
 	invoice_link: z.string().nullable(),
 	telegram_payment_charge_id: z.string().nullable(),
+	/** "platform": paid through StarPay's bot and settled to the merchant's StarPay balance. */
+	settlement: z.enum(["direct", "platform"]),
+	/** StarPay's commission on a platform-settled payment. */
+	fee: Stars.nullable(),
 	subscription_id: prefixedId("sub").nullable(),
 	expires_at: Timestamp,
 	paid_at: Timestamp.nullable(),
@@ -105,8 +109,12 @@ export type CustomerObject = z.infer<typeof CustomerObject>;
 export const BalanceObject = z.object({
 	object: z.literal("balance"),
 	livemode: z.boolean(),
-	/** Null until the first sync with Telegram. */
+	settlement: z.enum(["direct", "platform"]),
+	/** Direct: your bot's Telegram balance (null until the first sync). Platform: withdrawable Stars. */
 	stars: Stars.nullable(),
 	synced_at: Timestamp.nullable(),
+	/** Platform settlement only. */
+	pending: z.int().nullable(),
+	available: z.int().nullable(),
 });
 export type BalanceObject = z.infer<typeof BalanceObject>;

@@ -4,7 +4,9 @@ import type {
 	ApiKeyView,
 	BotView,
 	CustomerObject,
+	FeePlanView,
 	OrderObject,
+	PayoutObject,
 	ProductObject,
 	SettingsView,
 	SubscriptionObject,
@@ -13,7 +15,9 @@ import type {
 	ApiKey,
 	Bot,
 	Customer,
+	FeePlan,
 	MerchantSettings,
+	Payout,
 	Prisma,
 	Product,
 } from "@starpay/db";
@@ -49,7 +53,7 @@ export const orderInclude = {
 	product: { select: { id: true, name: true, type: true } },
 	customer: { select: { id: true, telegramUserId: true, username: true } },
 	payments: {
-		select: { telegramChargeId: true },
+		select: { telegramChargeId: true, feeStars: true, settlement: true },
 		orderBy: { createdAt: "asc" },
 		take: 1,
 	},
@@ -83,6 +87,11 @@ export function serializeOrder(order: OrderWithRelations): OrderObject {
 		metadata: asMetadata(order.metadata),
 		invoice_link: order.invoiceLink,
 		telegram_payment_charge_id: order.payments[0]?.telegramChargeId ?? null,
+		settlement: order.settlement,
+		fee:
+			order.settlement === "platform"
+				? (order.payments[0]?.feeStars ?? null)
+				: null,
 		subscription_id: order.subscription?.id ?? null,
 		expires_at: iso(order.expiresAt),
 		paid_at: isoOrNull(order.paidAt),
@@ -139,6 +148,7 @@ export function serializeApiKey(key: ApiKey): ApiKeyView {
 export function serializeSettings(settings: MerchantSettings): SettingsView {
 	return {
 		pay_support_text: settings.paySupportText,
+		payout_ton_address: settings.payoutTonAddress,
 		notify_payment: settings.notifyPayment,
 		notify_webhook_fail: settings.notifyWebhookFail,
 		notify_sub_cancel: settings.notifySubCancel,
@@ -178,4 +188,49 @@ export function serializeSubscription(
 		cancelled_at: isoOrNull(subscription.cancelledAt),
 		created_at: iso(subscription.createdAt),
 	};
+}
+
+export function serializeFeePlan(plan: FeePlan): FeePlanView {
+	return {
+		id: plan.id,
+		name: plan.name,
+		percent_bps: plan.percentBps,
+		fixed_stars: plan.fixedStars,
+		payout_fee_stars: plan.payoutFeeStars,
+		min_payout_stars: plan.minPayoutStars,
+		hold_days: plan.holdDays,
+		reserve_bps: plan.reserveBps,
+		reserve_days: plan.reserveDays,
+		is_default: plan.isDefault,
+	};
+}
+
+export function serializePayout(payout: Payout): PayoutObject {
+	return {
+		id: payout.id,
+		object: "payout",
+		livemode: payout.mode === "live",
+		status: payout.status,
+		amount: payout.amountStars,
+		fee: payout.feeStars,
+		ton_address: payout.tonAddress,
+		ton_amount:
+			payout.tonAmountNano === null
+				? null
+				: formatNanoTon(payout.tonAmountNano),
+		tx_reference: payout.txReference,
+		failure_reason: payout.failureReason,
+		created_at: iso(payout.createdAt),
+		paid_at: isoOrNull(payout.paidAt),
+	};
+}
+
+/** 1500000000n → "1.5" */
+export function formatNanoTon(nano: bigint): string {
+	const whole = nano / 1_000_000_000n;
+	const fraction = (nano % 1_000_000_000n)
+		.toString()
+		.padStart(9, "0")
+		.replace(/0+$/, "");
+	return fraction ? `${whole}.${fraction}` : String(whole);
 }

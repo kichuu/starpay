@@ -5,6 +5,7 @@ import { randomBase58 } from "../crypto";
 import type { Actor, Deps, Scope } from "../deps";
 import { DomainError, errors } from "../errors";
 import { newId } from "../ids";
+import { PLATFORM_ORG_ID } from "../platform";
 import { serializeBot } from "../serializers";
 import { audit } from "./audit";
 
@@ -39,16 +40,50 @@ export function createBotService(deps: Deps) {
 		});
 	}
 
-	/** The connected bot, or BOT_NOT_CONNECTED. */
+	const usable = (bot: Bot | null): bot is Bot =>
+		Boolean(
+			bot && bot.status !== "disconnected" && bot.status !== "invalid_token",
+		);
+
+	/** The merchant's own connected bot, or BOT_NOT_CONNECTED. */
 	async function requireActive(scope: Scope) {
 		const bot = await find(scope);
-		if (
-			!bot ||
-			bot.status === "disconnected" ||
-			bot.status === "invalid_token"
-		) {
-			throw errors.botNotConnected();
+		if (!usable(bot)) throw errors.botNotConnected();
+		return bot;
+	}
+
+	/** StarPay's own bot for hosted mode, if one is connected for this mode. */
+	async function platformBot(mode: Scope["mode"]) {
+		const bot = await find({ organizationId: PLATFORM_ORG_ID, mode });
+		return usable(bot) ? bot : null;
+	}
+
+	/**
+	 * The bot that issues a merchant's invoices: their own bot if connected
+	 * (direct settlement), otherwise StarPay's bot (platform settlement).
+	 */
+	async function invoiceBot(
+		scope: Scope,
+	): Promise<{ bot: Bot; settlement: "direct" | "platform" }> {
+		const own = await find(scope);
+		if (usable(own)) return { bot: own, settlement: "direct" };
+		const platform = await platformBot(scope.mode);
+		if (platform) return { bot: platform, settlement: "platform" };
+		throw errors.botNotConnected();
+	}
+
+	/** Best effort: the token may be revoked or undecryptable (e.g. after a key change). */
+	async function stopUpdates(bot: Bot) {
+		try {
+			await clientFor(bot).deleteWebhook();
+		} catch {
+			// Nothing to clean up that we can reach.
 		}
+	}
+
+	async function byId(botId: string) {
+		const bot = await db.bot.findUnique({ where: { id: botId } });
+		if (!usable(bot)) throw errors.botNotConnected();
 		return bot;
 	}
 
@@ -84,6 +119,9 @@ export function createBotService(deps: Deps) {
 	return {
 		find,
 		requireActive,
+		platformBot,
+		invoiceBot,
+		byId,
 		clientFor,
 
 		async get(scope: Scope) {
@@ -123,9 +161,10 @@ export function createBotService(deps: Deps) {
 			const existing = await find(scope);
 			if (existing && existing.telegramBotId !== telegramBotId) {
 				// Switching bots: stop the old one from sending us updates.
-				await clientFor(existing)
-					.deleteWebhook()
-					.catch(() => undefined);
+				await stopUpdates(existing);
+				// update_id is per Telegram bot: the old bot's IDs would make the new bot's
+				// first updates look like redeliveries and get dropped.
+				await db.telegramUpdate.deleteMany({ where: { botId: existing.id } });
 			}
 			if (claimed && claimed.organizationId !== scope.organizationId) {
 				await db.bot.delete({ where: { id: claimed.id } });
@@ -207,9 +246,7 @@ export function createBotService(deps: Deps) {
 		async disconnect(scope: Scope, actor: Actor) {
 			const bot = await find(scope);
 			if (!bot) return { ok: true as const };
-			await clientFor(bot)
-				.deleteWebhook()
-				.catch(() => undefined);
+			await stopUpdates(bot);
 			await db.bot.update({
 				where: { id: bot.id },
 				data: { status: "disconnected" },

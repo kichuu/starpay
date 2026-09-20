@@ -11,11 +11,13 @@ import {
 import type { Actor, Deps, Scope } from "../deps";
 import { errors } from "../errors";
 import { newId } from "../ids";
+import { planFor } from "../ledger/fees";
 import { orderInclude, serializeOrder, toJson } from "../serializers";
 import { audit } from "./audit";
 import type { BotService } from "./bots";
 import { addOrderEvent, emitEvent } from "./events";
 import { OPEN_STATUSES } from "./orders";
+import { bookPayment, bookRefund, termsFor } from "./settlement";
 
 export type PreCheckoutDecision =
 	| { ok: true }
@@ -30,21 +32,21 @@ const REJECT = {
 	unavailable: "This item is no longer available.",
 } as const;
 
-const scopeOf = (bot: Bot): Scope => ({
-	organizationId: bot.organizationId,
-	mode: bot.mode,
+const scopeOf = (owner: {
+	organizationId: string;
+	mode: Scope["mode"];
+}): Scope => ({
+	organizationId: owner.organizationId,
+	mode: owner.mode,
 });
 
 export function createPaymentService(deps: Deps, bots: BotService) {
 	const { db } = deps;
 
+	/** The order behind an invoice payload, only if this bot issued it. */
 	async function findOrderForBot(bot: Bot, orderId: string) {
 		return db.order.findFirst({
-			where: {
-				id: orderId,
-				organizationId: bot.organizationId,
-				mode: bot.mode,
-			},
+			where: { id: orderId, botId: bot.id, mode: bot.mode },
 			include: { product: { select: { status: true } } },
 		});
 	}
@@ -62,6 +64,14 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 			data: { refundedAt: now },
 		});
 		if (count === 0) return false;
+
+		if (payment.settlement === "platform") {
+			// Re-read under the row lock taken above: releasedAt decides which balance is debited.
+			const locked = await tx.payment.findUniqueOrThrow({
+				where: { id: payment.id },
+			});
+			await bookRefund(tx, locked, now);
+		}
 
 		await tx.order.updateMany({
 			where: { id: payment.orderId, status: "paid" },
@@ -129,7 +139,7 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 					});
 					await emitEvent(
 						tx,
-						scopeOf(bot),
+						scopeOf(order),
 						"order.expired",
 						serializeOrder(full),
 						now,
@@ -165,7 +175,7 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 					});
 					await emitEvent(
 						tx,
-						scopeOf(bot),
+						scopeOf(order),
 						"payment.failed",
 						serializeOrder(full),
 						now,
@@ -194,12 +204,11 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 			from: User | undefined,
 		) {
 			const now = deps.now();
-			const scope = scopeOf(bot);
 			const order = await findOrderForBot(bot, payment.invoice_payload);
 			if (!order) {
 				await audit(
 					db,
-					scope,
+					scopeOf(bot),
 					{ type: "system", id: "system" },
 					"payment.orphaned",
 					payment.telegram_payment_charge_id,
@@ -210,6 +219,7 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 				return { recorded: false as const, reason: "order_not_found" };
 			}
 
+			const scope = scopeOf(order);
 			const payerId = BigInt(from?.id ?? order.payerTelegramId ?? 0);
 			const isRenewal = Boolean(
 				payment.is_recurring && !payment.is_first_recurring,
@@ -255,9 +265,24 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 						? await tx.subscription.findUnique({ where: { orderId: order.id } })
 						: null;
 
+					// Hosted: StarPay's fee is fixed at payment time from the merchant's plan.
+					const terms =
+						order.settlement === "platform"
+							? termsFor(
+									payment.total_amount,
+									await planFor(tx, order.organizationId),
+									now,
+								)
+							: null;
+
 					// Unique on telegramChargeId: a redelivered update fails here and rolls back.
-					await tx.payment.create({
+					const created = await tx.payment.create({
 						data: {
+							settlement: order.settlement,
+							feeStars: terms?.feeStars ?? 0,
+							netStars: terms?.netStars,
+							feePlanId: terms?.feePlanId,
+							availableAt: terms?.availableAt,
 							id: newId("payment", now.getTime()),
 							organizationId: scope.organizationId,
 							mode: scope.mode,
@@ -272,6 +297,8 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 							createdAt: now,
 						},
 					});
+					if (created.settlement === "platform")
+						await bookPayment(tx, created, now);
 
 					if (isRenewal && subscription && periodEnd) {
 						await tx.subscription.update({
@@ -372,7 +399,10 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 			});
 			if (!payment) throw errors.orderNotRefundable(orderId, order.status);
 
-			const bot = await bots.requireActive(scope);
+			// Refund through whichever bot took the payment (the merchant's or StarPay's).
+			const bot = order.botId
+				? await bots.byId(order.botId)
+				: await bots.requireActive(scope);
 			try {
 				await bots.clientFor(bot).refundStarPayment({
 					user_id: Number(order.customer.telegramUserId),
@@ -411,16 +441,13 @@ export function createPaymentService(deps: Deps, bots: BotService) {
 		async handleExternalRefund(bot: Bot, refunded: RefundedPayment) {
 			const payment = await db.payment.findUnique({
 				where: { telegramChargeId: refunded.telegram_payment_charge_id },
+				include: { order: { select: { botId: true } } },
 			});
-			if (
-				!payment ||
-				payment.organizationId !== bot.organizationId ||
-				payment.mode !== bot.mode
-			) {
+			if (!payment || payment.order.botId !== bot.id) {
 				return { applied: false };
 			}
 			const applied = await db.$transaction((tx) =>
-				applyRefund(tx, scopeOf(bot), payment, deps.now(), "telegram"),
+				applyRefund(tx, scopeOf(payment), payment, deps.now(), "telegram"),
 			);
 			return { applied };
 		},

@@ -8,7 +8,9 @@ Inputs: the Better-T-Stack scaffold in this repo and `StarPay Dashboard (1).html
 
 ## 0. Ground rules
 
-- **Non-custodial.** Each merchant owns their Telegram bot and StarPay only operates it. Stars stay in the merchant's bot balance, and StarPay never moves funds.
+- **Two settlement modes.**
+  - **Direct (non-custodial):** the merchant connects their own bot. Stars stay in their Telegram balance, StarPay never touches the money and charges no commission. They withdraw on Fragment themselves.
+  - **Hosted (custodial):** the merchant has no bot of their own, so StarPay's platform bot takes the payment. The money is StarPay's to hold and owe: a double-entry ledger tracks each merchant's balance, StarPay takes a commission, and merchants are paid out in TON. See §13.
 - **Merchant = Better-Auth organization.** Team members and their roles (Owner / Developer / Support) come from the Better-Auth `organization` plugin.
 - **Live / Test mode on every row.** Every merchant-owned table has a `mode` column (`live | test`). Test mode uses a *separate* bot token on Telegram's test environment (`https://api.telegram.org/bot<token>/test/<method>`).
 - **Stars are integers.** Stars are stored as `Int`. USD values are shown in the UI as estimates only and never stored.
@@ -669,6 +671,75 @@ Periodic jobs are wrapped in `jobLock.tryRun`, which uses an advisory lock. On s
 | **M2 Webhooks** | Endpoints, outbox, dispatcher, signing, retries, resend, test event | The merchant receives a signed `payment.succeeded`; killing the endpoint produces retries |
 | **M3 Dashboard core** | Overview, Payments and drawer, refunds, Customers, Bot & API, API keys | The design screens render real data |
 | **M4 Money details** | Subscriptions (create, renew, cancel, expire), balance sync, `/paysupport`, settings, audit log | A subscription renews on the test server; the balance matches Telegram |
+| **M6 Hosted mode** ✅ code + tests; payouts need a funded TON wallet | Platform bot, double-entry ledger, fee plans, hold/reserve, TON payouts, platform admin | Hosted payment books fee and net; payout leaves the treasury; books balance |
 | **M5 Reach** | Telegram Mini App mode and bearer auth, OpenAPI docs at `/v1/docs`, TS SDK generated from the contracts, notifications | The dashboard opens inside Telegram |
 
 **Testing:** Vitest. Services are tested against a real Postgres (a Docker container or `prisma dev`) with a fake telegram client. Signature and backoff get unit tests with fixed values. One end-to-end script drives M1 against Telegram's test server.
+
+
+---
+
+## 13. Hosted mode: ledger, fees and payouts
+
+Hosted merchants sell through **StarPay's platform bot**, so their money passes through StarPay. That makes StarPay a custodian, and the design follows from it: the money must be tracked to the Star, and every movement must be explainable.
+
+### Settlement choice
+
+`bots.invoiceBot(scope)` picks the bot for each new order: the merchant's own if connected (`settlement = "direct"`), otherwise the platform bot (`settlement = "platform"`). The order records both `botId` and `settlement`, so a Telegram update is always matched to the bot that issued its invoice, and switching later never rewrites history.
+
+### The ledger
+
+Double-entry, denominated in whole Stars, in `ledger_account` / `ledger_transaction` / `ledger_entry`:
+
+| Account | Kind | Meaning |
+|---|---|---|
+| `platform_telegram` | asset | Stars sitting in the platform bot's Telegram balance |
+| `platform_treasury` | asset | value withdrawn via Fragment, less payouts sent (negative = StarPay fronting TON) |
+| `platform_fees` | revenue | StarPay's commission |
+| `merchant_pending` | liability | a merchant's earnings still inside the hold period |
+| `merchant_available` | liability | released earnings they can withdraw |
+| `merchant_payouts` | liability | payouts requested but not yet sent |
+
+Rules the code and the database both enforce:
+- **Every transaction sums to zero** (deferred constraint trigger), so a half-written movement can't commit.
+- **Entries are append-only** (triggers reject UPDATE and DELETE). Corrections are new transactions.
+- **Balances are never stored.** They are always `SUM(amount)` over entries; there is no `merchant.balance` column to drift.
+- **Postings are idempotent** via `idempotencyKey` (`payment:<id>`, `release:<id>`, `refund:<id>`, `payout_*:<id>`).
+
+Movements:
+
+```
+payment          platform_telegram +gross | merchant_pending −net | platform_fees −fee
+release          merchant_pending  +net   | merchant_available −net        (after hold_days)
+refund           platform_telegram −gross | platform_fees +fee | pending/available +net
+payout_request   merchant_available +(amount+fee) | merchant_payouts −amount | platform_fees −fee
+payout_paid      merchant_payouts  +amount | platform_treasury −amount
+payout_reversed  merchant_payouts  +amount | platform_fees +fee | merchant_available −(amount+fee)
+fragment_withdrawal  platform_treasury +stars | platform_telegram −stars
+```
+
+A refund reverses the fee too, so the books mirror the original sale. A refund of money already paid out can push `merchant_available` negative: that debt is settled by future earnings, and payouts are blocked until it clears.
+
+### Fees
+
+`fee_plan` holds the commercial terms: `percentBps` + `fixedStars` per payment, `payoutFeeStars`, `minPayoutStars`, `holdDays`, and a rolling reserve (`reserveBps` over `reserveDays`). One plan is the default; a merchant can be assigned another. The fee is computed at payment time (percentage rounded half up, never more than the payment) and **stored on the payment**, so later plan changes never rewrite past sales. Defaults: 5%, 21-day hold, 10% reserve over 30 days, 1,000-Star minimum payout.
+
+The reserve is measured from `availableAt` (when money became available), not from when the release job happened to run, so a late job can't extend it.
+
+### Payouts
+
+A payout moves Stars out of `merchant_available` and sends TON to the merchant's wallet. Safeguards:
+- **No double spend:** the request locks the merchant's `merchant_available` account row (`FOR UPDATE`) and rechecks the balance inside the same transaction.
+- **Manual by default:** with no hot wallet configured, payouts wait in the admin queue and are marked paid (with a TON transaction reference) or failed, which returns the Stars and the payout fee.
+- **Automatic sending is replay-safe:** the wallet's seqno is reserved and saved *before* sending. A crash mid-send is resolved by reading the wallet's seqno, not by sending again; a message that expired unaccepted is retried with the *same* seqno, which the wallet contract accepts only once. Only one transfer is ever in flight per wallet.
+- Conversion uses Telegram's Star rate (`STAR_USD_RATE`, default $0.013) and TON/USD from tonapi, both recorded on the payout.
+
+### Platform admin
+
+`PLATFORM_ADMIN_USER_IDS` lists the StarPay staff who can open `/admin`: platform balances with a **reconciliation check against Telegram's reported balance**, the payout queue, recording Fragment withdrawals, fee plans, and per-merchant plan assignment.
+
+### Open risks (unchanged by the code)
+
+1. Telegram can withhold or debit the platform bot's balance (Bot Developer Terms §6.2.4), which affects every hosted merchant at once.
+2. Holding and paying out other people's money is regulated in most countries; check licensing and merchant KYC before hosted mode takes real money.
+3. The hot wallet is a theft target: keep only the working float in it.

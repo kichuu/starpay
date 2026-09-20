@@ -69,6 +69,21 @@ pnpm -F @starpay/core test
 
 The tests run the payment flow against the `starpay_test` database with a fake Telegram client.
 
+## Hosted mode (StarPay's own bot)
+
+Merchants without their own bot sell through StarPay's **platform bot**: StarPay holds the Stars, tracks what each merchant is owed in a double-entry ledger, takes a commission and pays them out in TON. Merchants who connect their own bot are unaffected — no custody, no fee.
+
+To run it:
+
+1. Put your user ID in `PLATFORM_ADMIN_USER_IDS` (Settings → "Your user ID" shows it) and restart the server. A **Platform admin** link appears in the sidebar.
+2. In **Platform admin → Overview**, connect the platform bot for Live and/or Test with a token from @BotFather.
+3. Adjust the commercial terms in **Fee plans** (default: 5%, 21-day hold, 10% reserve over 30 days, 1,000-Star minimum payout), and assign plans per merchant under **Merchants**.
+4. Merchants add a TON wallet in Settings and request payouts from Balance.
+5. Payouts are processed **by hand** by default: the queue is in **Platform admin → Payouts**, where you mark each one paid (with the TON transaction) or failed. Set `TON_PAYOUT_MNEMONIC_LIVE` / `TON_PAYOUT_MNEMONIC_TEST` (24 words, a dedicated V4R2 wallet used for nothing else) to send automatically instead.
+6. After withdrawing the platform bot's Stars on Fragment, record it in **Platform admin** so the books move the Stars into the TON treasury.
+
+Before this takes real money: Telegram may withhold or debit the platform bot's balance (Developer Terms §6.2.4), which affects every hosted merchant at once, and holding other people's funds is regulated in most countries. See `docs/PLAN.md` §13.
+
 ## Database Setup
 
 Generate the Prisma client before development, typechecking, or building, including in CI and deployment builds. Run this again after changing the Prisma schema:

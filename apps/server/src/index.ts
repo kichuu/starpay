@@ -12,8 +12,9 @@ import { logger } from "hono/logger";
 
 import { createDashboardContext, createPublicContext } from "./context";
 import { ENV } from "./env.server";
-import { auth } from "./services";
+import { auth, services } from "./services";
 import { telegramRoutes } from "./telegram/route";
+import { startWorker } from "./worker";
 
 /** Logs procedure errors except expected ones (ORPCErrors with a 4xx status). */
 function logUnexpected(error: unknown) {
@@ -88,3 +89,8 @@ app.get("/", (c) => c.text("OK"));
 serve({ fetch: app.fetch, port: 3000 }, (info) => {
 	console.log(`Server is running on http://localhost:${info.port}`);
 });
+
+if (ENV.WORKER_ENABLED) {
+	const stopWorker = startWorker(services);
+	process.once("SIGTERM", stopWorker);
+}

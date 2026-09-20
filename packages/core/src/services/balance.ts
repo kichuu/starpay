@@ -8,6 +8,7 @@ import {
 import type { Deps, Scope } from "../deps";
 import { errors } from "../errors";
 import type { BotService } from "./bots";
+import type { PayoutService } from "./payouts";
 
 const BALANCE_MAX_AGE_MS = 60_000;
 const PAGE_SIZE = 25;
@@ -39,12 +40,33 @@ function describe(tx: StarTransaction): Pick<
 	};
 }
 
-export function createBalanceService(deps: Deps, bots: BotService) {
+export function createBalanceService(
+	deps: Deps,
+	bots: BotService,
+	payouts: PayoutService,
+) {
 	const { db } = deps;
 
 	return {
 		async get(scope: Scope): Promise<BalanceObject> {
 			let bot = await bots.find(scope);
+			const ownActive =
+				bot && bot.status !== "disconnected" && bot.status !== "invalid_token";
+			if (!ownActive && (await bots.platformBot(scope.mode))) {
+				// Hosted: the merchant's money is in the ledger, not in a bot of theirs.
+				const balances = await db.$transaction((tx) =>
+					payouts.computeBalances(tx, scope),
+				);
+				return {
+					object: "balance",
+					livemode: scope.mode === "live",
+					settlement: "platform",
+					stars: balances.withdrawable,
+					synced_at: deps.now().toISOString(),
+					pending: balances.pending,
+					available: balances.available,
+				};
+			}
 			const stale =
 				!bot?.balanceSyncedAt ||
 				deps.now().getTime() - bot.balanceSyncedAt.getTime() >
@@ -64,8 +86,11 @@ export function createBalanceService(deps: Deps, bots: BotService) {
 			return {
 				object: "balance",
 				livemode: scope.mode === "live",
+				settlement: "direct",
 				stars: bot?.starBalance ?? null,
 				synced_at: bot?.balanceSyncedAt?.toISOString() ?? null,
+				pending: null,
+				available: null,
 			};
 		},
 
