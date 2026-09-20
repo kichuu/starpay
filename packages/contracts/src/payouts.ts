@@ -123,6 +123,8 @@ export const AdminOverview = z.object({
 	payouts_waiting: z.int(),
 	automatic_payouts: z.boolean(),
 	wallet_address: z.string().nullable(),
+	/** Decimal TON in the hot wallet; null when unset or unreachable. */
+	wallet_balance_ton: z.string().nullable(),
 });
 export type AdminOverview = z.infer<typeof AdminOverview>;
 

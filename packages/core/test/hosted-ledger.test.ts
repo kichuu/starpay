@@ -39,6 +39,9 @@ class FakeWallet implements TonWallet {
 	async getSeqno() {
 		return this.seqno;
 	}
+	async getBalance() {
+		return 5_000_000_000n;
+	}
 	async transfer(input: { seqno: number; to: string; amountNano: bigint }) {
 		this.transfers.push(input);
 	}

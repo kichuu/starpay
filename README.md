@@ -79,7 +79,7 @@ To run it:
 2. In **Platform admin → Overview**, connect the platform bot for Live and/or Test with a token from @BotFather.
 3. Adjust the commercial terms in **Fee plans** (default: 5%, 21-day hold, 10% reserve over 30 days, 1,000-Star minimum payout), and assign plans per merchant under **Merchants**.
 4. Merchants add a TON wallet in Settings and request payouts from Balance.
-5. Payouts are processed **by hand** by default: the queue is in **Platform admin → Payouts**, where you mark each one paid (with the TON transaction) or failed. Set `TON_PAYOUT_MNEMONIC_LIVE` / `TON_PAYOUT_MNEMONIC_TEST` (24 words, a dedicated V4R2 wallet used for nothing else) to send automatically instead.
+5. To send payouts automatically, create the hot wallet with `pnpm -F server ton-wallet`, put its phrase in `TON_PAYOUT_MNEMONIC_TEST` (testnet first) or `TON_PAYOUT_MNEMONIC_LIVE`, redeploy, and fund the address the admin page shows. Keep only a working float in it: it is a hot wallet on the server. Payouts are processed **by hand** by default: the queue is in **Platform admin → Payouts**, where you mark each one paid (with the TON transaction) or failed. Set `TON_PAYOUT_MNEMONIC_LIVE` / `TON_PAYOUT_MNEMONIC_TEST` (24 words, a dedicated V4R2 wallet used for nothing else) to send automatically instead.
 6. After withdrawing the platform bot's Stars on Fragment, record it in **Platform admin** so the books move the Stars into the TON treasury.
 
 Before this takes real money: Telegram may withhold or debit the platform bot's balance (Developer Terms §6.2.4), which affects every hosted merchant at once, and holding other people's funds is regulated in most countries. See `docs/PLAN.md` §13.

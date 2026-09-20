@@ -8,7 +8,11 @@ import { newId } from "../ids";
 import { owed, post, totalsByType } from "../ledger/ledger";
 import { type PageArgs, pageQuery, toPage } from "../pagination";
 import { PLATFORM_ORG_ID } from "../platform";
-import { serializeFeePlan, serializePayout } from "../serializers";
+import {
+	formatNanoTon,
+	serializeFeePlan,
+	serializePayout,
+} from "../serializers";
 import { audit } from "./audit";
 import type { BotService } from "./bots";
 import type { PayoutService } from "./payouts";
@@ -51,6 +55,12 @@ export function createAdminService(
 				}),
 				deps.tonWallet(mode).catch(() => null),
 			]);
+			const walletBalance = wallet
+				? await wallet
+						.getBalance()
+						.then(formatNanoTon)
+						.catch(() => null)
+				: null;
 			let telegramActual: number | null = null;
 			if (bot) {
 				telegramActual = await bots
@@ -79,6 +89,7 @@ export function createAdminService(
 				payouts_waiting: waiting,
 				automatic_payouts: Boolean(wallet),
 				wallet_address: wallet?.address ?? null,
+				wallet_balance_ton: walletBalance,
 			};
 		},
 

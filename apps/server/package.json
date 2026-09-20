@@ -10,7 +10,8 @@
     "dev:bare": "varlock run -- tsx watch src/index.ts",
     "env:generate": "varlock codegen",
     "auth:generate": "varlock run -- pnpm dlx auth@latest generate --config src/services.ts --output ../../packages/db/prisma/schema/auth.prisma --yes",
-    "db:seed": "varlock run -- tsx src/scripts/seed.ts"
+    "db:seed": "varlock run -- tsx src/scripts/seed.ts",
+    "ton-wallet": "tsx src/scripts/ton-wallet.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
@@ -24,6 +25,8 @@
     "@starpay/db": "workspace:*",
     "@starpay/telegram": "workspace:*",
     "@ton/core": "^0.63.1",
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^16.3.0",
     "better-auth": "catalog:",
     "hono": "^4.13.7",
     "varlock": "catalog:",

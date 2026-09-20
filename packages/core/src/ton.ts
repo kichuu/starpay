@@ -16,6 +16,8 @@ export interface TonWallet {
 	readonly network: TonNetwork;
 	readonly address: string;
 	getSeqno(): Promise<number>;
+	/** Nano-TON currently in the wallet. */
+	getBalance(): Promise<bigint>;
 	/**
 	 * Sends a transfer with an explicit seqno. The wallet contract accepts each
 	 * seqno once, so re-sending the same seqno after a crash can't pay twice.
@@ -70,6 +72,7 @@ export async function createTonWallet(input: {
 		network: input.network,
 		address,
 		getSeqno: () => contract.getSeqno(),
+		getBalance: () => contract.getBalance(),
 		async transfer({ seqno, to, amountNano, comment }) {
 			await contract.sendTransfer({
 				seqno,

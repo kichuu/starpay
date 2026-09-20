@@ -178,6 +178,12 @@ function Overview({ mode }: { mode: Mode }) {
 							? "sent automatically from the hot wallet"
 							: "processed by hand (no hot wallet configured)"}
 					</div>
+					{data.wallet_balance_ton !== null && (
+						<div className="text-[13px]">
+							<span className="text-muted-foreground">Hot wallet holds </span>
+							<strong>{data.wallet_balance_ton} TON</strong>
+						</div>
+					)}
 					{data.wallet_address && (
 						<div className="flex items-center gap-1 text-[12.5px]">
 							<span className="text-muted-foreground">Hot wallet</span>
