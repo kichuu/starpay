@@ -2,6 +2,11 @@ import { os as base, implement, ORPCError } from "@orpc/server";
 import { type MemberRole, ROLE_RANK } from "@starpay/auth";
 import { dashboardContract, MODE_HEADER } from "@starpay/contracts";
 import type { Actor, Scope } from "@starpay/core";
+import {
+	serializeAttempt,
+	serializeDelivery,
+	serializeEndpoint,
+} from "@starpay/core/serializers";
 
 import type { DashboardContext } from "./context";
 import { mapDomainErrors } from "./errors";
@@ -122,6 +127,127 @@ export const dashboardRouter = os.router({
 		ledger: merchant.payouts.ledger.handler(({ context, input }) =>
 			context.services.payouts.ledger(context.scope, input),
 		),
+	},
+	webhooks: {
+		endpoints: {
+			list: merchant.webhooks.endpoints.list.handler(async ({ context }) =>
+				(await context.services.webhooks.listEndpoints(context.scope)).map(
+					serializeEndpoint,
+				),
+			),
+			create: merchant.webhooks.endpoints.create
+				.use(developer)
+				.handler(async ({ context, input }) =>
+					serializeEndpoint(
+						await context.services.webhooks.createEndpoint(
+							context.scope,
+							input,
+							context.actor,
+						),
+					),
+				),
+			update: merchant.webhooks.endpoints.update
+				.use(developer)
+				.handler(async ({ context, input }) =>
+					serializeEndpoint(
+						await context.services.webhooks.updateEndpoint(
+							context.scope,
+							input,
+							context.actor,
+						),
+					),
+				),
+			delete: merchant.webhooks.endpoints.delete
+				.use(developer)
+				.handler(({ context, input }) =>
+					context.services.webhooks.deleteEndpoint(
+						context.scope,
+						input.id,
+						context.actor,
+					),
+				),
+			revealSecret: merchant.webhooks.endpoints.revealSecret
+				.use(developer)
+				.handler(({ context, input }) =>
+					context.services.webhooks.revealSecret(
+						context.scope,
+						input.id,
+						context.actor,
+					),
+				),
+			rotateSecret: merchant.webhooks.endpoints.rotateSecret
+				.use(developer)
+				.handler(({ context, input }) =>
+					context.services.webhooks.rotateSecret(
+						context.scope,
+						input.id,
+						context.actor,
+					),
+				),
+			sendTest: merchant.webhooks.endpoints.sendTest
+				.use(developer)
+				.handler(async ({ context, input }) => {
+					const result = await context.services.webhooks.sendTest(
+						context.scope,
+						input.id,
+						input.type,
+						context.actor,
+					);
+					return {
+						delivery_id: result.deliveryId,
+						succeeded: result.succeeded,
+						status_code: result.statusCode,
+						error: result.error,
+						latency_ms: result.latencyMs,
+					};
+				}),
+		},
+		deliveries: {
+			list: merchant.webhooks.deliveries.list.handler(
+				async ({ context, input }) => {
+					const rows = await context.services.webhooks.listDeliveries(
+						context.scope,
+						{
+							endpointId: input.endpoint_id,
+							status: input.status,
+							limit: input.limit,
+							starting_after: input.starting_after,
+						},
+					);
+					return {
+						object: "list" as const,
+						data: rows.slice(0, input.limit).map(serializeDelivery),
+						has_more: rows.length > input.limit,
+					};
+				},
+			),
+			get: merchant.webhooks.deliveries.get.handler(
+				async ({ context, input }) => {
+					const delivery = await context.services.webhooks.getDelivery(
+						context.scope,
+						input.id,
+					);
+					return {
+						delivery: serializeDelivery(delivery),
+						attempts: delivery.attemptLog.map(serializeAttempt),
+					};
+				},
+			),
+			resend: merchant.webhooks.deliveries.resend
+				.use(developer)
+				.handler(async ({ context, input }) => {
+					const created = await context.services.webhooks.resend(
+						context.scope,
+						input.id,
+						context.actor,
+					);
+					const detail = await context.services.webhooks.getDelivery(
+						context.scope,
+						created.id,
+					);
+					return serializeDelivery(detail);
+				}),
+		},
 	},
 	me: os.me.handler(({ context }) => {
 		const user = context.session?.user;

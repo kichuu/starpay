@@ -17,6 +17,7 @@ import { createProductService } from "./services/products";
 import { createSettingsService } from "./services/settings";
 import { createSettlementService } from "./services/settlement";
 import { createTelegramUpdateService } from "./services/telegram-updates";
+import { createWebhookService } from "./services/webhooks";
 
 export function createServices(deps: Deps) {
 	const bots = createBotService(deps);
@@ -41,6 +42,7 @@ export function createServices(deps: Deps) {
 		payouts,
 		settlement: createSettlementService(deps),
 		admin: createAdminService(deps, bots, payouts),
+		webhooks: createWebhookService(deps),
 	};
 }
 

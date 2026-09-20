@@ -26,6 +26,7 @@ import {
 	ListProductsInput,
 	UpdateProductInput,
 } from "./public";
+import { webhooksContract } from "./webhook-admin";
 
 export const MODE_HEADER = "x-starpay-mode";
 
@@ -243,6 +244,7 @@ export const dashboardContract = {
 		revoke: oc.input(z.object({ id: prefixedId("key") })).output(Ok),
 	},
 	payouts: payoutsContract,
+	webhooks: webhooksContract,
 	/** StarPay staff only (PLATFORM_ADMIN_USER_IDS). */
 	admin: adminContract,
 	/** The signed-in user's platform permissions (for showing the admin link). */

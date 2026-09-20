@@ -4,12 +4,14 @@ import type {
 	ApiKeyView,
 	BotView,
 	CustomerObject,
+	DeliveryView,
 	FeePlanView,
 	OrderObject,
 	PayoutObject,
 	ProductObject,
 	SettingsView,
 	SubscriptionObject,
+	WebhookEndpointView,
 } from "@starpay/contracts";
 import type {
 	ApiKey,
@@ -20,6 +22,9 @@ import type {
 	Payout,
 	Prisma,
 	Product,
+	WebhookAttempt,
+	WebhookDelivery,
+	WebhookEndpoint,
 } from "@starpay/db";
 
 const iso = (date: Date) => date.toISOString();
@@ -237,4 +242,65 @@ export function formatNanoTon(nano: bigint): string {
 		.padStart(9, "0")
 		.replace(/0+$/, "");
 	return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+export function serializeEndpoint(
+	endpoint: WebhookEndpoint,
+): WebhookEndpointView {
+	return {
+		id: endpoint.id,
+		url: endpoint.url,
+		description: endpoint.description,
+		events: endpoint.events,
+		status: endpoint.status,
+		secret_rotated_at: isoOrNull(endpoint.secretRotatedAt),
+		last_failure_at: isoOrNull(endpoint.lastFailureAt),
+		created_at: iso(endpoint.createdAt),
+	};
+}
+
+export type DeliveryWithContext = WebhookDelivery & {
+	event: { type: string; orderId: string | null };
+	endpoint: { url: string };
+};
+
+export function serializeDelivery(delivery: DeliveryWithContext): DeliveryView {
+	return {
+		id: delivery.id,
+		event_id: delivery.eventId,
+		event_type: delivery.event.type,
+		order_id: delivery.event.orderId,
+		endpoint_id: delivery.endpointId,
+		endpoint_url: delivery.endpoint.url,
+		status: delivery.status,
+		attempts: delivery.attempts,
+		max_attempts: delivery.maxAttempts,
+		last_status_code: delivery.lastStatusCode,
+		last_latency_ms: delivery.lastLatencyMs,
+		last_error: delivery.lastError,
+		next_attempt_at:
+			delivery.status === "pending" ? iso(delivery.nextAttemptAt) : null,
+		delivered_at: isoOrNull(delivery.deliveredAt),
+		created_at: iso(delivery.createdAt),
+	};
+}
+
+const asHeaders = (value: Prisma.JsonValue) =>
+	(value && typeof value === "object" && !Array.isArray(value)
+		? value
+		: {}) as Record<string, string>;
+
+export function serializeAttempt(attempt: WebhookAttempt) {
+	return {
+		attempt: attempt.attempt,
+		url: attempt.url,
+		request_headers: asHeaders(attempt.requestHeaders),
+		request_body: attempt.requestBody,
+		status_code: attempt.statusCode,
+		response_headers: asHeaders(attempt.responseHeaders),
+		response_body: attempt.responseBody,
+		latency_ms: attempt.latencyMs,
+		error: attempt.error,
+		created_at: iso(attempt.createdAt),
+	};
 }

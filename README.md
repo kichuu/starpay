@@ -84,6 +84,29 @@ To run it:
 
 Before this takes real money: Telegram may withhold or debit the platform bot's balance (Developer Terms §6.2.4), which affects every hosted merchant at once, and holding other people's funds is regulated in most countries. See `docs/PLAN.md` §13.
 
+## Webhooks
+
+Add an endpoint under **Webhooks** and StarPay POSTs every event to it, so your server doesn't have to poll. Each delivery is retried up to five times over about eight hours, and the dashboard keeps the full trail: the exact headers and body sent, and the status, headers and body that came back.
+
+Verify the signature before trusting a payload:
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+// body must be the RAW request body, not a re-serialised object.
+export function verify(body, header, secret) {
+  const timestamp = header.match(/t=(\d+)/)?.[1];
+  if (!timestamp || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false; // 5-minute window
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+  // During a secret rotation the header carries a v1= for each valid secret.
+  return [...header.matchAll(/v1=([a-f0-9]{64})/g)].some(([, signature]) =>
+    timingSafeEqual(Buffer.from(signature), Buffer.from(expected)),
+  );
+}
+```
+
+Answer 2xx quickly and do your work afterwards: anything else (including a redirect) counts as a failure and is retried. Events carry an ID in `X-StarPay-Event-Id`; use it to ignore duplicates.
+
 ## Database Setup
 
 Generate the Prisma client before development, typechecking, or building, including in CI and deployment builds. Run this again after changing the Prisma schema:

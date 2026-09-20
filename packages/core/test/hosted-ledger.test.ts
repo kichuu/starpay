@@ -87,7 +87,11 @@ beforeEach(async () => {
 		select: { id: true },
 	});
 	for (const payout of stale) {
-		await services.payouts.markFailed(payout.id, "cleared by test setup", admin);
+		await services.payouts.markFailed(
+			payout.id,
+			"cleared by test setup",
+			admin,
+		);
 	}
 
 	await services.admin.connectPlatformBot(
@@ -175,14 +179,20 @@ describe("fees", () => {
 
 	it("takes payout gas and commission out of the amount", () => {
 		// 0.01 TON of gas at $5/TON is $0.05, which is 4 Stars at $0.013 each (rounded up).
-		const plan = { payoutFeeBps: 100, payoutFeeStars: 1, payoutGasNano: 10_000_000n };
-		expect(computePayoutFee(1000, plan, { tonUsd: 5, starUsd: 0.013 })).toEqual({
-			gas: 4,
-			percent: 10,
-			flat: 1,
-			total: 15,
-			net: 985,
-		});
+		const plan = {
+			payoutFeeBps: 100,
+			payoutFeeStars: 1,
+			payoutGasNano: 10_000_000n,
+		};
+		expect(computePayoutFee(1000, plan, { tonUsd: 5, starUsd: 0.013 })).toEqual(
+			{
+				gas: 4,
+				percent: 10,
+				flat: 1,
+				total: 15,
+				net: 985,
+			},
+		);
 	});
 });
 

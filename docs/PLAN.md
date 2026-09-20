@@ -504,7 +504,11 @@ Use Prisma directly in services for simple CRUD. Add repositories only where the
 
 During a secret rotation, there are two `v1=` values, one per active secret. Merchants must reject timestamps more than 5 minutes old.
 
-**Delivery**
+**Delivery** (implemented in `core/src/services/webhooks.ts`)
+- Every attempt stores the request URL, headers and signed body, and the response status, headers, body and latency, so a failure can be explained without guessing.
+- The dispatcher claims due deliveries with `FOR UPDATE SKIP LOCKED` using the injected clock, so several instances can run it and tests can move time.
+- Redirects are not followed: a 3xx counts as a failure, since following one could reach an internal address.
+- Resend queues a *new* delivery for the same event, leaving the previous trail intact.
 - Up to 5 attempts, matching the "1 / 5" in the design.
 - Backoff: 0 → 1 min → 5 min → 30 min → 2 h → 6 h, with ±20% jitter.
 - A 2xx within 10 s counts as success. Anything else, or a timeout, is a failure.
@@ -668,7 +672,7 @@ Periodic jobs are wrapped in `jobLock.tryRun`, which uses an advisory lock. On s
 |---|---|---|
 | **M0 Foundations** ✅ | New packages, env vars, schema and migration, crypto/ids, telegram client (test env), org plugin, mode middleware, adapter spike | `pnpm check-types` passes; a migration applies to the dev DB |
 | **M1 First payment** ✅ code + tests; needs a real test-server bot run | Bot connect, products, `POST /v1/orders`, Telegram webhook, pre-checkout, successful payment | A real test-environment bot sells an item end to end and the order shows `paid` |
-| **M2 Webhooks** | Endpoints, outbox, dispatcher, signing, retries, resend, test event | The merchant receives a signed `payment.succeeded`; killing the endpoint produces retries |
+| **M2 Webhooks** ✅ | Endpoints, outbox, dispatcher, signing, retries, resend, test event | The merchant receives a signed `payment.succeeded`; killing the endpoint produces retries |
 | **M3 Dashboard core** | Overview, Payments and drawer, refunds, Customers, Bot & API, API keys | The design screens render real data |
 | **M4 Money details** | Subscriptions (create, renew, cancel, expire), balance sync, `/paysupport`, settings, audit log | A subscription renews on the test server; the balance matches Telegram |
 | **M6 Hosted mode** ✅ code + tests; payouts need a funded TON wallet | Platform bot, double-entry ledger, fee plans, hold/reserve, TON payouts, platform admin | Hosted payment books fee and net; payout leaves the treasury; books balance |

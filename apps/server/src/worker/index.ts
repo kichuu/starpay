@@ -10,6 +10,11 @@ type Job = { name: string; everyMs: number; run: () => Promise<unknown> };
 export function startWorker(services: Services) {
 	const jobs: Job[] = [
 		{
+			name: "webhook-dispatch",
+			everyMs: 2_000,
+			run: () => services.webhooks.dispatchDue(),
+		},
+		{
 			name: "release-earnings",
 			everyMs: 60_000,
 			run: () => services.settlement.releaseDue(),

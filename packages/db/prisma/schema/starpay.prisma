@@ -320,6 +320,9 @@ model TelegramUpdate {
 
 model WebhookEndpoint {
   id                  String         @id
+  /// Set when StarPay stops retrying after repeated failures.
+  disabledAt          DateTime?
+  lastFailureAt       DateTime?
   organizationId      String
   mode                Mode
   url                 String
@@ -382,16 +385,22 @@ model WebhookDelivery {
   @@map("webhook_delivery")
 }
 
+/// One HTTP request to a merchant endpoint, kept in full so a failure can be explained.
 model WebhookAttempt {
-  id         String          @id @default(cuid())
-  deliveryId String
-  delivery   WebhookDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-  attempt    Int
-  statusCode Int?
-  latencyMs  Int?
-  error      String?
-  response   String?
-  createdAt  DateTime        @default(now())
+  id              String          @id @default(cuid())
+  deliveryId      String
+  delivery        WebhookDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  attempt         Int
+  url             String
+  requestHeaders  Json            @default("{}")
+  /// The exact bytes that were signed and sent (truncated for storage).
+  requestBody     String?
+  statusCode      Int?
+  responseHeaders Json            @default("{}")
+  responseBody    String?
+  latencyMs       Int?
+  error           String?
+  createdAt       DateTime        @default(now())
 
   @@index([deliveryId])
   @@map("webhook_attempt")
