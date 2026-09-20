@@ -1,34 +1,43 @@
-# starpay
+# StarPay
 
-StarPay is a payment backend for selling digital goods for Telegram Stars. A merchant connects their own bot; StarPay creates invoices, handles Telegram's payment updates and sends signed webhooks to the merchant's server. It never holds funds. See [docs/PLAN.md](docs/PLAN.md) for the architecture.
+**Accept Telegram Stars from any app, website or game — with a REST API, signed webhooks and a merchant dashboard.**
 
-Built on [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack): React, TanStack Router, Hono, oRPC, Prisma and Better-Auth.
+Telegram's Bot API can take Stars payments, but building a product on it means handling invoices, pre-checkout deadlines, duplicate updates, refunds, subscriptions and payouts yourself. StarPay does that part, so your server only has to call one endpoint and listen for a webhook.
 
-## Features
+```
+Your app ──POST /v1/orders──► StarPay ──createInvoiceLink──► Telegram Bot
+                                                                  │
+                                                        user pays Stars
+                                                                  │
+Your server ◄──signed webhook── StarPay ◄──successful_payment─────┘
+```
 
-- **TypeScript** - For type safety and improved developer experience
-- **TanStack Router** - File-based routing with full type safety
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **Hono** - Lightweight, performant server framework
-- **oRPC** - End-to-end type-safe APIs with OpenAPI integration
-- **Node.js** - Runtime environment
-- **Prisma** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
-- **Biome** - Linting and formatting
-- **Turborepo** - Optimized monorepo build system
+> [!WARNING]
+> **Alpha, and not audited.** It handles real money and has not been through a security review. In hosted mode StarPay holds funds on behalf of merchants, which is regulated in most countries — read [Hosted mode](#hosted-mode) before pointing it at anything that matters. Nothing here is legal advice.
 
-## Getting Started
+## What you get
 
-Requirements: Node.js 24 (`nvm use` reads `.nvmrc`), pnpm and Docker.
+- **REST API** for orders, products, subscriptions, customers and balances, with an OpenAPI spec and docs at `/v1/docs`
+- **Reliable payment handling** — pre-checkout answered inside Telegram's 10-second window, one payment recorded per charge no matter how often Telegram redelivers, and payments that arrive after an order expired are still kept
+- **Signed webhooks** with retries and a complete delivery trail: the exact request and the exact response for every attempt
+- **Refunds and subscriptions**, including refunds Telegram reports on its own
+- **Live and Test modes** side by side, Test using Telegram's test environment
+- **Dashboard**: revenue, payments with a per-order timeline, products, customers, subscriptions, bot health, API keys, webhooks and settings
+- **Two settlement models**: merchants keep their own bot (no custody, no fee), or sell through a shared platform bot with a double-entry ledger, commission and TON payouts
+
+## Quick start
+
+Requirements: **Node 24** (`nvm use`), **pnpm**, **Docker**.
 
 ```bash
+git clone https://github.com/kichuu/starpay.git
+cd starpay
 pnpm install
 docker compose up -d          # Postgres 17 on localhost:5433
 ```
 
-Add these to `apps/server/.env` (next to the Better-Auth values). Generate `ENCRYPTION_KEY` with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` and paste the output:
+Add these to `apps/server/.env` alongside the generated Better-Auth values. Generate the key with
+`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`:
 
 ```bash
 DATABASE_URL=postgresql://starpay:starpay@localhost:5433/starpay
@@ -36,59 +45,47 @@ ENCRYPTION_KEY=<32 random bytes, base64>
 PUBLIC_API_URL=http://localhost:3000
 ```
 
-`PUBLIC_API_URL` must be a public HTTPS URL before Telegram can deliver bot updates (see below).
-
-Apply migrations and start the web app and API against the local database:
+Then:
 
 ```bash
 pnpm run db:migrate
-pnpm run dev            # or: pnpm dev:web / pnpm dev:server
+pnpm run db:seed              # optional: demo merchant with 30 days of activity
+pnpm run dev
 ```
 
-`pnpm dev:alchemy` runs the Alchemy dev stack instead, which provisions a cloud Prisma Postgres.
+- Dashboard → http://localhost:3001 (seeded login: `demo@starpay.dev` / `starpay-demo`, switch the sidebar to **Test**)
+- API → http://localhost:3000, docs at `/v1/docs`
 
-### Demo data
+Telegram only delivers bot updates over HTTPS, so to take a real payment locally, expose port 3000 through a tunnel (cloudflared, ngrok), set `PUBLIC_API_URL` to that URL, and connect a bot from Telegram's test environment.
+
+## Taking a payment
+
+Connect a bot on **Bot & API** (create it with [@BotFather](https://t.me/BotFather) — use a bot dedicated to payments, since StarPay takes over its updates), add a product, create an API key, then:
 
 ```bash
-pnpm db:seed
+curl -X POST https://your-api/v1/orders \
+  -H "Authorization: Bearer live_sk_…" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{
+    "product": "gems_500",
+    "telegram_user_id": 6142883901,
+    "reference": "order-3391"
+  }'
 ```
 
-Creates `demo@starpay.dev` / `starpay-demo` with a "Pixel Forge" merchant in **Test mode** (switch the sidebar toggle to Test): products, customers and about 30 days of orders, payments and refunds. Its bot is a stub, so anything that calls Telegram live (refunds, balance, transactions) returns a Telegram error for this merchant.
-
-- Dashboard: http://localhost:3001
-- API: http://localhost:3000 (dashboard RPC at `/rpc`, public API at `/v1`, docs at `/v1/docs`)
-
-Telegram only delivers bot updates over HTTPS. To test real payments locally, expose port 3000 through a tunnel (cloudflared, ngrok), set `PUBLIC_API_URL` to the tunnel URL, and connect a bot from Telegram's test environment.
-
-### Tests
-
-```bash
-docker exec starpay-postgres psql -U starpay -c "CREATE DATABASE starpay_test"   # once
-pnpm -F @starpay/core test
+```json
+{ "id": "ord_01M2…", "status": "created", "amount": 100, "currency": "XTR",
+  "invoice_link": "https://t.me/$AbC…", "expires_at": "…" }
 ```
 
-The tests run the payment flow against the `starpay_test` database with a fake Telegram client.
-
-## Hosted mode (StarPay's own bot)
-
-Merchants without their own bot sell through StarPay's **platform bot**: StarPay holds the Stars, tracks what each merchant is owed in a double-entry ledger, takes a commission and pays them out in TON. Merchants who connect their own bot are unaffected — no custody, no fee.
-
-To run it:
-
-1. Put your user ID in `PLATFORM_ADMIN_USER_IDS` (Settings → "Your user ID" shows it) and restart the server. A **Platform admin** link appears in the sidebar.
-2. In **Platform admin → Overview**, connect the platform bot for Live and/or Test with a token from @BotFather.
-3. Adjust the commercial terms in **Fee plans** (default: 5% per payment, 21-day hold, 10% reserve over 30 days, 1,000-Star minimum payout, 0.01 TON of gas per payout), and assign plans per merchant under **Merchants**. Payout fees — a percentage, a flat amount and network gas — come out of the amount cashed out, so a merchant withdrawing 1,000 Stars receives 1,000 minus those fees.
-4. Merchants add a TON wallet in Settings and request payouts from Balance.
-5. To send payouts automatically, create the hot wallet with `pnpm -F server ton-wallet`, put its phrase in `TON_PAYOUT_MNEMONIC_TEST` (testnet first) or `TON_PAYOUT_MNEMONIC_LIVE`, redeploy, and fund the address the admin page shows. Keep only a working float in it: it is a hot wallet on the server. Payouts are processed **by hand** by default: the queue is in **Platform admin → Payouts**, where you mark each one paid (with the TON transaction) or failed. Set `TON_PAYOUT_MNEMONIC_LIVE` / `TON_PAYOUT_MNEMONIC_TEST` (24 words, a dedicated V4R2 wallet used for nothing else) to send automatically instead.
-6. After withdrawing the platform bot's Stars on Fragment, record it in **Platform admin** so the books move the Stars into the TON treasury.
-
-Before this takes real money: Telegram may withhold or debit the platform bot's balance (Developer Terms §6.2.4), which affects every hosted merchant at once, and holding other people's funds is regulated in most countries. See `docs/PLAN.md` §13.
+Send the buyer to `invoice_link` (or `Telegram.WebApp.openInvoice(...)` in a Mini App). When they pay, your webhook fires.
 
 ## Webhooks
 
-Add an endpoint under **Webhooks** and StarPay POSTs every event to it, so your server doesn't have to poll. Each delivery is retried up to five times over about eight hours, and the dashboard keeps the full trail: the exact headers and body sent, and the status, headers and body that came back.
+Add an endpoint on the **Webhooks** page. Events: `payment.succeeded`, `payment.refunded`, `payment.failed`, `order.expired`, `subscription.renewed`, `subscription.cancelled`, `subscription.expired`.
 
-Verify the signature before trusting a payload:
+Each delivery is retried up to five times over about eight hours, and the dashboard keeps every attempt's request and response. Verify the signature before trusting a payload:
 
 ```js
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -96,7 +93,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 // body must be the RAW request body, not a re-serialised object.
 export function verify(body, header, secret) {
   const timestamp = header.match(/t=(\d+)/)?.[1];
-  if (!timestamp || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false; // 5-minute window
+  if (!timestamp || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
   const expected = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
   // During a secret rotation the header carries a v1= for each valid secret.
   return [...header.matchAll(/v1=([a-f0-9]{64})/g)].some(([, signature]) =>
@@ -105,112 +102,89 @@ export function verify(body, header, secret) {
 }
 ```
 
-Answer 2xx quickly and do your work afterwards: anything else (including a redirect) counts as a failure and is retried. Events carry an ID in `X-StarPay-Event-Id`; use it to ignore duplicates.
+Answer 2xx quickly and do the work afterwards; anything else (including a redirect) is treated as a failure and retried. Use `X-StarPay-Event-Id` to ignore duplicates.
 
-## Database Setup
+## Hosted mode
 
-Generate the Prisma client before development, typechecking, or building, including in CI and deployment builds. Run this again after changing the Prisma schema:
+A merchant with their own bot keeps the Stars in their own Telegram balance: StarPay never touches the money and charges nothing.
+
+A merchant **without** a bot can sell through StarPay's platform bot instead. Then StarPay holds the money and owes it to them, so it is tracked in a double-entry ledger: every transaction sums to zero, entries are append-only (both enforced by database triggers), and balances are always computed from the entries — there is no stored balance to drift.
+
+- **Fees** are per plan: a percentage plus a flat amount per payment; payouts cost a percentage, a flat amount and the TON network gas, all taken out of the amount withdrawn.
+- **Hold and reserve** mirror Fragment's own rules: earnings are released after 21 days, with a rolling reserve held back against refunds.
+- **Payouts** go to the merchant's TON wallet. Manual by default, processed from the admin; configure a hot wallet and they send automatically, with the wallet's seqno reserved before sending so a crash can't pay twice.
+
+Before using this for other people's money: Telegram can withhold or debit the platform bot's balance (Bot Developer Terms §6.2.4), which affects every hosted merchant at once, and holding customer funds is regulated. `docs/PLAN.md` §13 has the full design and the risks.
+
+## How it works
+
+```
+apps/
+  server/      Hono: /rpc (dashboard), /v1 (public API), /telegram/webhook/:botId, worker jobs
+  web/         React + TanStack Router dashboard (also runs as a Telegram Mini App)
+packages/
+  contracts/   Zod schemas + oRPC contracts — the single source of truth for every API shape
+  api/         Controllers: auth, role and mode checks, then a call into core
+  core/        Business logic: orders, payments, bots, ledger, payouts, webhooks
+  telegram/    Typed Telegram Bot API client, with test-environment support
+  auth/        Better-Auth (organizations = merchants, roles owner/developer/support)
+  db/          Prisma schema, migrations and client
+  ui/          Shared components
+  infra/       Alchemy deployment
+```
+
+Design decisions worth knowing, all covered in [`docs/PLAN.md`](docs/PLAN.md):
+
+- The order ID **is** the Telegram invoice payload, so payment updates need no lookup table.
+- Pre-checkout is answered in the webhook's own HTTP response — one fewer round trip inside a 10-second limit.
+- Webhook events are written in the same transaction as the state change (outbox), so an event exists if and only if the change committed.
+- Bot tokens and webhook secrets are encrypted with `ENCRYPTION_KEY`; API keys are stored only as hashes.
+
+## Testing
 
 ```bash
-pnpm run db:generate
+docker exec starpay-postgres psql -U starpay -c "CREATE DATABASE starpay_test"   # once
+pnpm -F @starpay/core test
 ```
 
-Alchemy provisions Prisma Postgres, passes its connection credentials directly to the deployed application, and manages database deployment in the same stack as the consuming app. You do not need to copy a hosted `DATABASE_URL` into the app environment.
-
-Create and commit migrations with `pnpm run db:migrate`; deployment applies checked-in migrations with `prisma migrate deploy`.
-
-## UI Customization
-
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
-
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
-
-### Add more shared components
-
-Run this from the project root to add more primitives to the shared UI package:
-
-```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
-```
-
-Import shared components like this:
-
-```tsx
-import { Button } from "@starpay/ui/components/button";
-```
-
-### Add app-specific blocks
-
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
-
-## Environment Configuration
-
-Each app owns its environment schema in `.env.schema`. Varlock generates `src/env.ts` during installation; run `pnpm run env:generate` after changing a schema. Commit schemas, and keep secrets in ignored env files or your deployment platform.
-
-Import the generated `ENV` accessor in application code. Shared database and auth packages receive configuration or initialized clients from the application. See [Varlock's monorepo guide](https://varlock.dev/guides/monorepos/).
-
-Bun's automatic env loading is disabled in `bunfig.toml`; the framework integration or server bootstrap loads Varlock. Node deployments must include Varlock and its dependencies alongside the app schema.
-
-Run standalone Node/Bun tools that use Varlock from the owning app directory so they load that app's schema and env files. `env:generate` only generates TypeScript files; it does not initialize environment values in a subsequent command.
+37 tests run against a real Postgres, with Telegram faked and a real local HTTP server for webhooks: the payment flow, duplicate handling, refunds, the ledger (including concurrent payout double-spend), and webhook signing, retries and the delivery trail.
 
 ## Deployment
 
-Alchemy deploys the API and the dashboard to Prisma Compute and the database to Prisma Postgres (`packages/infra/alchemy.run.ts`). The live stage is `prod`.
-
-**Once per machine**
-
-1. Create a service token in the Prisma Console (workspace → Settings → Service tokens) and put it in `packages/infra/.env` as `PRISMA_SERVICE_TOKEN=…`, together with an `ALCHEMY_PASSWORD` (any long random string; it encrypts secrets in the local Alchemy state).
-2. Production settings live in two gitignored files, loaded because deploys run with `NODE_ENV=production`:
-   - `apps/server/.env.production`: `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY` (never reuse the local ones), `BETTER_AUTH_URL` and `PUBLIC_API_URL` (the server URL), `CORS_ORIGIN` (the web URL)
-   - `apps/web/.env.production`: `VITE_SERVER_URL` (the server URL)
-3. Bun must be on your PATH: Alchemy bundles the server with `bun build`.
-
-**Deploy**
+`packages/infra` deploys the API, dashboard and database to [Prisma](https://www.prisma.io/) with [Alchemy](https://alchemy.run). It isn't the only way to run StarPay — it's a Node server, a static site and Postgres — but it's the path that's wired up:
 
 ```bash
-pnpm run deploy        # plan: pnpm -F @starpay/infra plan
+pnpm run deploy        # preview with: pnpm -F @starpay/infra plan
 ```
 
-Migrations in `packages/db/prisma/migrations` are applied to Prisma Postgres during the deploy. On a brand-new stack, deploy once to get the server and web URLs, fill them into the two `.env.production` files, and deploy again.
+Production settings live in gitignored `.env.production` files; see [Deployment](docs/PLAN.md#12-milestones) and the setup notes in `docs/`. Keep `ENCRYPTION_KEY` safe: it decrypts every stored bot token, so losing it means every merchant reconnects their bot.
 
-Keep `ENCRYPTION_KEY` safe: it decrypts every stored bot token and webhook secret, so losing or changing it means reconnecting every bot.
+## Scripts
 
-## Git Hooks and Formatting
+| Command | What it does |
+|---|---|
+| `pnpm run dev` | Dashboard + API against the local database |
+| `pnpm run db:migrate` | Create and apply migrations |
+| `pnpm run db:seed` | Demo merchant with ~30 days of activity |
+| `pnpm run db:studio` | Prisma Studio |
+| `pnpm run check-types` | Type-check every package |
+| `pnpm run check` | Biome lint and format |
+| `pnpm -F server ton-wallet` | Generate a TON hot wallet for payouts |
 
-- Run checks: `pnpm run check`
+## Not done yet
 
-## Project Structure
+- Merchants and the API live on separate domains in the reference deployment, so the session cookie is third-party — **Safari blocks it**. Custom domains sharing a parent (`app.` / `api.`) fix it.
+- No rate limiting on the public API.
+- Team invitations and notification emails are not wired to an email provider.
+- Automatic TON payouts have been tested against a fake wallet only; try testnet before mainnet.
+- No per-customer credit balances (useful for games priced below Telegram's 50-Star minimum purchase).
 
-```
-starpay/
-├── apps/
-│   ├── web/         # Frontend application (React + TanStack Router)
-│   └── server/      # Backend API (Hono, ORPC)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── contracts/   # Zod schemas + oRPC contracts (public API, dashboard, webhooks)
-│   ├── api/         # Controllers: auth/role/mode middleware → core services
-│   ├── core/        # Business logic (orders, payments, bots, API keys, …)
-│   ├── telegram/    # Typed Telegram Bot API client
-│   ├── auth/        # Better-Auth config (organizations = merchants)
-│   └── db/          # Prisma schema, migrations & client
-```
+## Contributing
 
-## Available Scripts
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
 
-- `pnpm run dev`: Start all applications in development mode
-- `pnpm run build`: Build all applications
-- `pnpm run dev:web`: Start only the web application
-- `pnpm run dev:server`: Start only the server
-- `pnpm run check-types`: Check TypeScript types across all apps
-- `pnpm run db:push`: Push schema changes to database
-- `pnpm run db:generate`: Generate database client/types
-- `pnpm run db:migrate`: Run database migrations
-- `pnpm run db:studio`: Open database studio UI
-- `pnpm run check`: Run Biome formatting and linting
+## License
 
-## Better Auth Schema Generation
+[MIT](LICENSE)
 
-After changing auth plugins or schema options, run `pnpm run auth:generate` from the project root. The script runs the Better Auth CLI through `varlock run` from the owning app directory, loading the auth instance from `src/services.ts`. Review the schema changes, then use your ORM's migration workflow to apply them.
+Not affiliated with Telegram. "Telegram" and "Telegram Stars" are trademarks of Telegram FZ-LLC.
